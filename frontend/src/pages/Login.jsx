@@ -1,5 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { api } from '../api';
+import { useGPS } from '../hooks/useGPS';
 import { Sparkles, Building2, Heart, ChevronLeft, MapPin, Lock, Globe, Search, Navigation } from 'lucide-react';
 
 const BUSINESS_TYPES = ['Restaurant', 'Hotel', 'Supermarket', 'Cafeteria'];
@@ -10,13 +11,13 @@ export default function Login({ onLoginSuccess }) {
   const [mode, setMode] = useState('login');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [locating, setLocating] = useState(false);
-  const [gpsAccuracy, setGpsAccuracy] = useState(null);
+
   const [locationResults, setLocationResults] = useState([]);
   const [searchingLoc, setSearchingLoc] = useState(false);
   const [locationQuery, setLocationQuery] = useState('');
   const searchTimeout = useRef(null);
-  const watchRef = useRef(null);
+
+  const gps = useGPS();
 
   const [form, setForm] = useState({
     username: '', password: '',
@@ -28,46 +29,13 @@ export default function Login({ onLoginSuccess }) {
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const detectLocation = () => {
-    if (!navigator.geolocation) { alert('Geolocation not supported by your browser.'); return; }
-    setLocating(true);
-    setGpsAccuracy(null);
-    // Stop any previous watch
-    if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
-    watchRef.current = navigator.geolocation.watchPosition(
-      async (pos) => {
-        const { latitude, longitude, accuracy } = pos.coords;
-        setGpsAccuracy(Math.round(accuracy));
-        setForm(f => ({ ...f, latitude, longitude }));
-        // Once accuracy is good enough (≤50m), stop watching and reverse geocode
-        if (accuracy <= 50) {
-          navigator.geolocation.clearWatch(watchRef.current);
-          setLocating(false);
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`);
-            const data = await res.json();
-            if (data.display_name) {
-              setForm(f => ({ ...f, location: data.display_name, latitude, longitude }));
-              setLocationQuery(data.display_name);
-            }
-          } catch { /* ignore */ }
-        }
-      },
-      (err) => {
-        navigator.geolocation.clearWatch(watchRef.current);
-        setLocating(false);
-        setGpsAccuracy(null);
-        alert(err.code === 1 ? 'Location access denied. Please allow it in browser settings.' : 'Could not get GPS location. Enter address manually.');
-      },
-      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
-    );
-  };
-
-  const stopGps = () => {
-    if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
-    setLocating(false);
-    setGpsAccuracy(null);
-  };
+  // Sync GPS result into form when hook resolves
+  useEffect(() => {
+    if (!gps.locating && gps.coords) {
+      setForm(f => ({ ...f, latitude: gps.coords.lat, longitude: gps.coords.lng, location: gps.address || f.location }));
+      if (gps.address) setLocationQuery(gps.address);
+    }
+  }, [gps.locating, gps.coords, gps.address]);
 
   const handleLocationSearch = (e) => {
     const q = e.target.value;
@@ -161,7 +129,7 @@ export default function Login({ onLoginSuccess }) {
     <div className="auth-bg">
       <div className="glass-panel auth-card animate-fade-in" style={{ maxWidth: 460 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
-          <button onClick={() => { setPortal(null); setError(''); }}
+          <button onClick={() => { setPortal(null); setError(''); gps.stop(); }}
             style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}>
             <ChevronLeft size={20} />
           </button>
@@ -212,13 +180,13 @@ export default function Login({ onLoginSuccess }) {
                         placeholder="Search address or type manually…"
                         required style={{ paddingLeft: '2.1rem' }} />
                     </div>
-                    {locating ? (
-                      <button type="button" onClick={stopGps}
+                    {gps.locating ? (
+                      <button type="button" onClick={gps.stop}
                         style={{ padding: '0 0.75rem', borderRadius: '8px', border: '1px solid var(--accent-rose)', background: 'rgba(239,68,68,0.1)', color: 'var(--accent-rose)', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                        <Navigation size={13} className="animate-pulse" /> Stop
+                        <Navigation size={13} /> Stop
                       </button>
                     ) : (
-                      <button type="button" onClick={detectLocation}
+                      <button type="button" onClick={gps.start}
                         style={{ padding: '0 0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--accent-cyan)', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                         <Navigation size={13} /> GPS
                       </button>
@@ -243,15 +211,27 @@ export default function Login({ onLoginSuccess }) {
                   )}
                 </div>
 
-                {/* GPS status */}
-                {locating && (
-                  <div style={{ fontSize: '0.72rem', color: 'var(--accent-amber)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <Navigation size={11} /> Acquiring GPS signal… {gpsAccuracy ? `±${gpsAccuracy}m` : ''}
+                {/* GPS status + accuracy bar */}
+                {gps.locating && (
+                  <div style={{ marginTop: '0.4rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--accent-amber)', marginBottom: '0.2rem' }}>
+                      <span><Navigation size={11} style={{ verticalAlign: 'middle' }} /> {gps.status}</span>
+                      {gps.accuracy && <span style={{ color: gps.accuracyColor }}>±{gps.accuracy}m</span>}
+                    </div>
+                    <div style={{ height: 4, background: 'var(--bg-tertiary)', borderRadius: 4, overflow: 'hidden' }}>
+                      <div style={{ width: `${gps.accuracyPct}%`, height: '100%', background: gps.accuracyColor, transition: 'width 0.4s ease' }} />
+                    </div>
+                    {gps.canAccept && (
+                      <button type="button" onClick={gps.acceptCurrent}
+                        style={{ marginTop: '0.35rem', fontSize: '0.72rem', padding: '0.2rem 0.6rem', borderRadius: '6px', border: `1px solid ${gps.accuracyColor}`, background: 'transparent', color: gps.accuracyColor, cursor: 'pointer' }}>
+                        Use current location (±{gps.accuracy}m)
+                      </button>
+                    )}
                   </div>
                 )}
-                {!locating && form.latitude && (
+                {!gps.locating && form.latitude && (
                   <div style={{ fontSize: '0.72rem', color: 'var(--accent-emerald)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <MapPin size={11} /> Pinned: {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}{gpsAccuracy ? ` ±${gpsAccuracy}m` : ''}
+                    <MapPin size={11} /> {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}{gps.accuracy ? ` ±${gps.accuracy}m` : ''}
                   </div>
                 )}
               </div>
@@ -299,7 +279,7 @@ export default function Login({ onLoginSuccess }) {
           </p>
           <ul style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', paddingLeft: '1.1rem', margin: 0, lineHeight: '1.8' }}>
             {(isBusiness
-              ? ['Manage inventory', 'Track expiry dates', 'View waste risk', 'Receive reorder recommendations', 'Donate surplus food', 'Control profile privacy']
+              ? ['Manage inventory', 'Track expiry dates', 'View waste risk', 'Donate surplus food', 'Control profile privacy']
               : ['View nearby food donations', 'Accept donations', 'Schedule deliveries to your address', 'Track received donations']
             ).map((c) => <li key={c}>{c}</li>)}
           </ul>

@@ -1,13 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { api } from '../api';
+import { useGPS } from '../hooks/useGPS';
 import { Building2, Heart, Phone, MapPin, Mail, User, Edit2, Save, X, Globe, Lock, Search, Eye, EyeOff, Navigation } from 'lucide-react';
 
 export default function ProfilePage({ user, tenant, onTenantUpdate }) {
   const [step, setStep] = useState('view'); // 'view' | 'verify' | 'edit'
   const [saving, setSaving] = useState(false);
-  const [locating, setLocating] = useState(false);
-  const [gpsAccuracy, setGpsAccuracy] = useState(null);
-  const watchRef = useRef(null);
+  const gps = useGPS();
   const [saved, setSaved] = useState(false);
 
   // Verification state
@@ -81,45 +80,13 @@ export default function ProfilePage({ user, tenant, onTenantUpdate }) {
     });
   };
 
-  // --- GPS (high accuracy watchPosition) ---
-  const detectLocation = () => {
-    if (!navigator.geolocation) { alert('Geolocation not supported by your browser.'); return; }
-    setLocating(true);
-    setGpsAccuracy(null);
-    if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
-    watchRef.current = navigator.geolocation.watchPosition(
-      async (pos) => {
-        const { latitude, longitude, accuracy } = pos.coords;
-        setGpsAccuracy(Math.round(accuracy));
-        setForm(f => ({ ...f, latitude, longitude }));
-        if (accuracy <= 50) {
-          navigator.geolocation.clearWatch(watchRef.current);
-          setLocating(false);
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`);
-            const data = await res.json();
-            if (data.display_name) {
-              setForm(f => ({ ...f, address: data.display_name, latitude, longitude }));
-              setLocationQuery(data.display_name);
-            }
-          } catch { /* ignore */ }
-        }
-      },
-      (err) => {
-        navigator.geolocation.clearWatch(watchRef.current);
-        setLocating(false);
-        setGpsAccuracy(null);
-        alert(err.code === 1 ? 'Location access denied. Please allow it in browser settings.' : 'Could not get GPS location.');
-      },
-      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
-    );
-  };
-
-  const stopGps = () => {
-    if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
-    setLocating(false);
-    setGpsAccuracy(null);
-  };
+  // Sync GPS result into form whenever hook resolves
+  useEffect(() => {
+    if (!gps.locating && gps.coords) {
+      setForm(f => ({ ...f, latitude: gps.coords.lat, longitude: gps.coords.lng, address: gps.address || f.address }));
+      if (gps.address) setLocationQuery(gps.address);
+    }
+  }, [gps.locating, gps.coords, gps.address]);
 
   // --- Location Search (Nominatim) ---
   const handleLocationSearch = (e) => {
@@ -308,13 +275,13 @@ export default function ProfilePage({ user, tenant, onTenantUpdate }) {
                           style={{ paddingLeft: '2.1rem' }}
                         />
                       </div>
-                      {locating ? (
-                        <button type="button" onClick={stopGps}
+                      {gps.locating ? (
+                        <button type="button" onClick={gps.stop}
                           style={{ padding: '0 0.85rem', borderRadius: '8px', border: '1px solid var(--accent-rose)', background: 'rgba(239,68,68,0.1)', color: 'var(--accent-rose)', cursor: 'pointer', fontSize: '0.8rem', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                           <Navigation size={13} /> Stop
                         </button>
                       ) : (
-                        <button type="button" onClick={detectLocation}
+                        <button type="button" onClick={gps.start}
                           style={{ padding: '0 0.85rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--accent-cyan)', cursor: 'pointer', fontSize: '0.8rem', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                           <Navigation size={13} /> GPS
                         </button>
@@ -341,14 +308,26 @@ export default function ProfilePage({ user, tenant, onTenantUpdate }) {
                     )}
 
                     {/* GPS status */}
-                    {locating && (
-                      <div style={{ fontSize: '0.72rem', color: 'var(--accent-amber)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                        <Navigation size={11} /> Acquiring GPS signal… {gpsAccuracy ? `±${gpsAccuracy}m` : 'waiting for signal'}
+                    {gps.locating && (
+                      <div style={{ marginTop: '0.4rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--accent-amber)', marginBottom: '0.2rem' }}>
+                          <span><Navigation size={11} style={{ verticalAlign: 'middle' }} /> {gps.status}</span>
+                          {gps.accuracy && <span style={{ color: gps.accuracyColor }}>±{gps.accuracy}m</span>}
+                        </div>
+                        <div style={{ height: 4, background: 'var(--bg-tertiary)', borderRadius: 4, overflow: 'hidden' }}>
+                          <div style={{ width: `${gps.accuracyPct}%`, height: '100%', background: gps.accuracyColor, transition: 'width 0.4s ease' }} />
+                        </div>
+                        {gps.canAccept && (
+                          <button type="button" onClick={gps.acceptCurrent}
+                            style={{ marginTop: '0.35rem', fontSize: '0.72rem', padding: '0.2rem 0.6rem', borderRadius: '6px', border: `1px solid ${gps.accuracyColor}`, background: 'transparent', color: gps.accuracyColor, cursor: 'pointer' }}>
+                            Use current location (±{gps.accuracy}m)
+                          </button>
+                        )}
                       </div>
                     )}
-                    {!locating && form.latitude && (
+                    {!gps.locating && form.latitude && (
                       <div style={{ fontSize: '0.72rem', color: 'var(--accent-emerald)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                        <MapPin size={11} /> Pinned: {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}{gpsAccuracy ? ` ±${gpsAccuracy}m` : ''}
+                        <MapPin size={11} /> {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}{gps.accuracy ? ` ±${gps.accuracy}m` : ''}
                       </div>
                     )}
                   </div>

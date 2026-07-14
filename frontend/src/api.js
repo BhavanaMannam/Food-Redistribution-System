@@ -118,6 +118,7 @@ export const api = {
       if (data.is_public != null) params.append('is_public', data.is_public);
       return request(`/tenants/${tenantId}?${params.toString()}`, { method: 'PUT' });
     },
+    getNGOs: (tenantId) => request(`/tenants/ngos?tenant_id=${tenantId}`),
     getNearby: (tenantId) => request(`/tenants/nearby?tenant_id=${tenantId}`),
   },
 

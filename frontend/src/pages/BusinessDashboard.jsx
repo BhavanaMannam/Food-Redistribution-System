@@ -4,11 +4,12 @@ import DashboardCard from '../components/DashboardCard';
 import BarcodeScanner from '../components/BarcodeScanner';
 import { 
   Plus, Upload, ShieldAlert, Sparkles, ShoppingBag, 
-  Calendar, CheckCircle, Trash2, BarChart3, X, MapPin, Phone, Truck, Lock, Globe
+  Calendar, CheckCircle, Trash2, BarChart3, X, MapPin, Phone, Truck, Lock, Globe,
+  Heart, Users, SlidersHorizontal
 } from 'lucide-react';
 
 export default function BusinessDashboard({ user, tenant }) {
-  const [activeTab, setActiveTab] = useState('inventory'); // inventory, forecasts, bookings
+  const [activeTab, setActiveTab] = useState('inventory'); // inventory, forecasts, bookings, donate, ngos
   const [inventory, setInventory] = useState([]);
   const [predictions, setPredictions] = useState([]);
   const [reorders, setReorders] = useState([]);
@@ -40,6 +41,17 @@ export default function BusinessDashboard({ user, tenant }) {
   const [matchingNGOs, setMatchingNGOs] = useState([]);
   const [selectedListingForMatch, setSelectedListingForMatch] = useState(null);
 
+  // Individual donation state
+  const [allNGOs, setAllNGOs] = useState([]);
+  const [ngoFilter, setNgoFilter] = useState('');
+  const [ngoDistFilter, setNgoDistFilter] = useState('all');
+  const [quickDonate, setQuickDonate] = useState({
+    food_name: '', category: 'Produce', quantity: '', unit: 'units',
+    notes: '', pickup_hours: 4
+  });
+  const [quickDonating, setQuickDonating] = useState(false);
+  const [quickSuccess, setQuickSuccess] = useState('');
+
   useEffect(() => {
     loadData();
   }, []);
@@ -59,6 +71,9 @@ export default function BusinessDashboard({ user, tenant }) {
 
       const activeBookings = await api.marketplace.getBookings(tenant.id);
       setBookings(activeBookings);
+
+      const ngos = await api.tenants.getNGOs(tenant.id);
+      setAllNGOs(ngos);
     } catch (err) {
       setError(err.message || 'Error loading dashboard data');
     } finally {
@@ -193,6 +208,50 @@ export default function BusinessDashboard({ user, tenant }) {
     }
   };
 
+  // Quick individual donation (no inventory item needed)
+  const handleQuickDonate = async (e) => {
+    e.preventDefault();
+    setQuickDonating(true);
+    setQuickSuccess('');
+    try {
+      const today = new Date();
+      const expiry = new Date();
+      expiry.setDate(today.getDate() + 3); // assume 3 days shelf life for occasion food
+      const now = new Date();
+      const end = new Date();
+      end.setHours(now.getHours() + parseInt(quickDonate.pickup_hours));
+
+      // Create inventory item first, then list it
+      const item = await api.inventory.createItem(tenant.id, {
+        product_name: quickDonate.food_name,
+        category: quickDonate.category,
+        quantity: parseFloat(quickDonate.quantity),
+        unit: quickDonate.unit,
+        purchase_price: 0.01,
+        expiry_date: expiry.toISOString().split('T')[0],
+      });
+      await api.marketplace.createListing(tenant.id, {
+        inventory_item_id: item.id,
+        product_name: item.product_name,
+        category: item.category,
+        quantity: item.quantity,
+        unit: item.unit,
+        expiry_date: item.expiry_date,
+        pickup_window_start: now.toISOString(),
+        pickup_window_end: end.toISOString(),
+        notes: quickDonate.notes || 'Leftover food from occasion — free to collect.',
+        status: 'available',
+      });
+      setQuickSuccess(`"${quickDonate.food_name}" listed for donation! Nearby NGOs can now request it.`);
+      setQuickDonate({ food_name: '', category: 'Produce', quantity: '', unit: 'units', notes: '', pickup_hours: 4 });
+      loadData();
+    } catch (err) {
+      alert(err.message || 'Failed to post donation');
+    } finally {
+      setQuickDonating(false);
+    }
+  };
+
   // Stats calculation
   const totalStockItems = inventory.reduce((sum, item) => sum + item.quantity, 0);
   const highRiskCount = predictions.filter(p => p.waste_risk_score >= 70).length;
@@ -285,12 +344,28 @@ export default function BusinessDashboard({ user, tenant }) {
           style={{ background: 'none', color: activeTab === 'bookings' ? 'var(--accent-indigo)' : 'var(--text-secondary)', borderBottom: activeTab === 'bookings' ? '2px solid var(--accent-indigo)' : 'none', borderRadius: 0, paddingBottom: '0.75rem' }}
           onClick={() => setActiveTab('bookings')}
         >
-          NGO Pickup Coordination
+          NGO Requests
           {bookings.filter(b => b.status === 'pending').length > 0 && (
             <span style={{ marginLeft: '0.4rem', background: 'var(--accent-rose)', color: '#fff', borderRadius: '10px', padding: '0.1rem 0.45rem', fontSize: '0.72rem', fontWeight: 700 }}>
               {bookings.filter(b => b.status === 'pending').length}
             </span>
           )}
+        </button>
+        <button
+          className={`btn ${activeTab === 'donate' ? 'active' : ''}`}
+          style={{ background: 'none', color: activeTab === 'donate' ? 'var(--accent-emerald)' : 'var(--text-secondary)', borderBottom: activeTab === 'donate' ? '2px solid var(--accent-emerald)' : 'none', borderRadius: 0, paddingBottom: '0.75rem' }}
+          onClick={() => setActiveTab('donate')}
+        >
+          <Heart size={15} style={{ marginRight: '0.25rem', verticalAlign: 'middle' }} />
+          Donate Food
+        </button>
+        <button
+          className={`btn ${activeTab === 'ngos' ? 'active' : ''}`}
+          style={{ background: 'none', color: activeTab === 'ngos' ? 'var(--accent-cyan)' : 'var(--text-secondary)', borderBottom: activeTab === 'ngos' ? '2px solid var(--accent-cyan)' : 'none', borderRadius: 0, paddingBottom: '0.75rem' }}
+          onClick={() => setActiveTab('ngos')}
+        >
+          <Users size={15} style={{ marginRight: '0.25rem', verticalAlign: 'middle' }} />
+          Nearby NGOs
         </button>
       </div>
 
@@ -524,7 +599,181 @@ export default function BusinessDashboard({ user, tenant }) {
         </div>
       )}
 
-      {/* NGO Proximity Matching Panel (Shown below listings creation) */}
+      {/* Individual / Occasion Donation Tab */}
+      {activeTab === 'donate' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+          {/* Quick donate form */}
+          <div className="glass-panel" style={{ padding: '1.5rem' }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Heart size={17} style={{ color: 'var(--accent-emerald)' }} /> Donate Leftover Food
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+              Have extra food from a party, event, or occasion? List it here — nearby NGOs can request it immediately.
+            </p>
+
+            {quickSuccess && (
+              <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid var(--accent-emerald)', color: 'var(--accent-emerald)', padding: '0.75rem', borderRadius: '8px', fontSize: '0.82rem', marginBottom: '1rem' }}>
+                ✓ {quickSuccess}
+              </div>
+            )}
+
+            <form onSubmit={handleQuickDonate} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">What food do you have?</label>
+                <input className="form-control" type="text" value={quickDonate.food_name}
+                  onChange={e => setQuickDonate(f => ({ ...f, food_name: e.target.value }))}
+                  placeholder="e.g. Biryani, Birthday cake, Sandwiches…" required />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Category</label>
+                  <select className="form-control" value={quickDonate.category}
+                    onChange={e => setQuickDonate(f => ({ ...f, category: e.target.value }))}>
+                    {['Produce','Dairy','Bakery','Meat','Pantry'].map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Unit</label>
+                  <select className="form-control" value={quickDonate.unit}
+                    onChange={e => setQuickDonate(f => ({ ...f, unit: e.target.value }))}>
+                    {['units','kg','liters','boxes','plates'].map(u => <option key={u}>{u}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Quantity</label>
+                  <input className="form-control" type="number" min="0.1" step="any"
+                    value={quickDonate.quantity}
+                    onChange={e => setQuickDonate(f => ({ ...f, quantity: e.target.value }))} required />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Pickup within (hours)</label>
+                  <input className="form-control" type="number" min="1" max="48"
+                    value={quickDonate.pickup_hours}
+                    onChange={e => setQuickDonate(f => ({ ...f, pickup_hours: e.target.value }))} required />
+                </div>
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Any notes? (optional)</label>
+                <textarea className="form-control" rows="2" value={quickDonate.notes}
+                  onChange={e => setQuickDonate(f => ({ ...f, notes: e.target.value }))}
+                  placeholder="e.g. Freshly cooked, vegetarian, packed in containers…" />
+              </div>
+              <button type="submit" className="btn btn-success" disabled={quickDonating} style={{ padding: '0.75rem' }}>
+                <Heart size={15} /> {quickDonating ? 'Posting…' : 'Post Donation'}
+              </button>
+            </form>
+          </div>
+
+          {/* Tips panel */}
+          <div className="glass-panel" style={{ padding: '1.5rem' }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, marginBottom: '1rem' }}>How it works</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {[
+                { step: '1', title: 'Fill the form', desc: 'Tell us what food you have, how much, and how long it can be picked up.' },
+                { step: '2', title: 'It goes live instantly', desc: 'Your donation appears on the NGO feed. Nearby organizations can see and request it.' },
+                { step: '3', title: 'NGO sends a request', desc: 'You get a notification under NGO Requests. Accept it to confirm.' },
+                { step: '4', title: 'Food reaches people', desc: 'The NGO picks up or you deliver. Food goes to people who need it instead of the bin.' },
+              ].map(({ step, title, desc }) => (
+                <div key={step} style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
+                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(16,185,129,0.15)', border: '1px solid var(--accent-emerald)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.78rem', fontWeight: 700, color: 'var(--accent-emerald)', flexShrink: 0 }}>{step}</div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: '0.15rem' }}>{title}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>{desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Nearby NGOs Tab */}
+      {activeTab === 'ngos' && (
+        <div className="glass-panel table-container">
+          <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div>
+              <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, marginBottom: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Users size={17} style={{ color: 'var(--accent-cyan)' }} /> Recipient Organizations Near You
+              </h3>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>All registered NGOs and food banks — sorted by distance from your location</p>
+            </div>
+            {/* Filters */}
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <SlidersHorizontal size={14} style={{ color: 'var(--text-muted)' }} />
+              <input className="form-control" type="text" placeholder="Search by name…"
+                value={ngoFilter} onChange={e => setNgoFilter(e.target.value)}
+                style={{ width: 160, padding: '0.35rem 0.65rem', fontSize: '0.82rem' }} />
+              <select className="form-control" value={ngoDistFilter} onChange={e => setNgoDistFilter(e.target.value)}
+                style={{ padding: '0.35rem 0.65rem', fontSize: '0.82rem' }}>
+                <option value="all">All distances</option>
+                <option value="5">Within 5 km</option>
+                <option value="10">Within 10 km</option>
+                <option value="25">Within 25 km</option>
+                <option value="50">Within 50 km</option>
+              </select>
+            </div>
+          </div>
+
+          {(() => {
+            const filtered = allNGOs.filter(n => {
+              const nameMatch = n.name.toLowerCase().includes(ngoFilter.toLowerCase());
+              const distMatch = ngoDistFilter === 'all' || n.distance_km == null || n.distance_km <= parseFloat(ngoDistFilter);
+              return nameMatch && distMatch;
+            });
+            return filtered.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                No organizations found matching your filters.
+              </div>
+            ) : (
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Organization</th>
+                    <th>Type</th>
+                    <th>Address</th>
+                    <th>Distance</th>
+                    <th>Contact</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(ngo => (
+                    <tr key={ngo.id}>
+                      <td style={{ fontWeight: 600 }}>{ngo.name}</td>
+                      <td><span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '20px', background: 'rgba(16,185,129,0.12)', color: 'var(--accent-emerald)' }}>{ngo.org_type || 'NGO'}</span></td>
+                      <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: 200 }}>
+                        {ngo.address ? <span><MapPin size={11} style={{ verticalAlign: 'middle' }} /> {ngo.address}</span> : '—'}
+                      </td>
+                      <td>
+                        {ngo.distance_km != null
+                          ? <span style={{ fontWeight: 600, color: ngo.distance_km <= 5 ? 'var(--accent-emerald)' : ngo.distance_km <= 15 ? 'var(--accent-cyan)' : 'var(--text-secondary)' }}>
+                              {ngo.distance_km} km
+                            </span>
+                          : <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No GPS data</span>
+                        }
+                      </td>
+                      <td style={{ fontSize: '0.82rem' }}>
+                        {ngo.contact_phone && <div><a href={`tel:${ngo.contact_phone}`} style={{ color: 'var(--accent-cyan)', textDecoration: 'none' }}><Phone size={11} style={{ verticalAlign: 'middle' }} /> {ngo.contact_phone}</a></div>}
+                        {ngo.contact_email && <div style={{ color: 'var(--text-muted)' }}>{ngo.contact_email}</div>}
+                      </td>
+                      <td>
+                        <button className="btn btn-success" style={{ padding: '0.3rem 0.65rem', fontSize: '0.78rem' }}
+                          onClick={() => setActiveTab('donate')}>
+                          <Heart size={12} /> Donate
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* NGO Proximity Matching Panel */}
       {selectedListingForMatch && matchingNGOs.length > 0 && (
         <div className="glass-panel animate-fade-in" style={{ marginTop: '2rem', padding: '1.5rem' }}>
           <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>

@@ -752,6 +752,37 @@ def update_tenant_profile(
     return tenant_to_dict(tenant)
 
 
+@app.get("/api/v1/tenants/ngos")
+def get_all_ngos(tenant_id: int, db: Session = Depends(get_db)):
+    """
+    Returns all NGO tenants with distance from the requesting business tenant.
+    """
+    requester = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not requester:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    ngos = db.query(Tenant).filter(Tenant.type == "ngo").all()
+    result = []
+    for ngo in ngos:
+        dist = None
+        if requester.location_lat and requester.location_lng and ngo.location_lat and ngo.location_lng:
+            dist = round(calculate_distance(
+                requester.location_lat, requester.location_lng,
+                ngo.location_lat, ngo.location_lng
+            ), 2)
+        result.append({
+            "id": ngo.id,
+            "name": ngo.name,
+            "org_type": ngo.org_type,
+            "address": ngo.address or "",
+            "contact_phone": ngo.contact_phone or "",
+            "contact_email": ngo.contact_email or "",
+            "distance_km": dist,
+        })
+    result.sort(key=lambda x: (x["distance_km"] is None, x["distance_km"] or 0))
+    return result
+
+
 @app.get("/api/v1/marketplace/listings/matched-for-ngo/{ngo_id}")
 def get_matched_listings_for_ngo(ngo_id: int, db: Session = Depends(get_db)):
     """
