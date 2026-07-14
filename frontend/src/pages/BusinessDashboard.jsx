@@ -4,11 +4,11 @@ import DashboardCard from '../components/DashboardCard';
 import BarcodeScanner from '../components/BarcodeScanner';
 import { 
   Plus, Upload, ShieldAlert, Sparkles, ShoppingBag, 
-  Calendar, CheckCircle, RefreshCw, Trash2, BarChart3, X, MapPin, Phone, Truck, Lock, Globe
+  Calendar, CheckCircle, Trash2, BarChart3, X, MapPin, Phone, Truck, Lock, Globe
 } from 'lucide-react';
 
 export default function BusinessDashboard({ user, tenant }) {
-  const [activeTab, setActiveTab] = useState('inventory'); // inventory, forecasts, reorders, bookings
+  const [activeTab, setActiveTab] = useState('inventory'); // inventory, forecasts, bookings
   const [inventory, setInventory] = useState([]);
   const [predictions, setPredictions] = useState([]);
   const [reorders, setReorders] = useState([]);
@@ -125,25 +125,6 @@ export default function BusinessDashboard({ user, tenant }) {
     }
   };
 
-  // Simulated POS sync
-  const triggerPOSSync = async () => {
-    const samplePOSPayload = [
-      { product_name: "Whole Milk 1 Gallon", category: "Dairy", quantity: 10.0, purchase_price: 3.50, days_to_expiry: 6 },
-      { product_name: "Organic Bananas", category: "Produce", quantity: 50.0, purchase_price: 1.20, days_to_expiry: 4 },
-      { product_name: "Sourdough Bread Loaf", category: "Bakery", quantity: 15.0, purchase_price: 2.50, days_to_expiry: 2 }
-    ];
-    try {
-      setLoading(true);
-      const res = await api.inventory.syncPOS(tenant.id, samplePOSPayload);
-      loadData();
-      alert(res.message || "POS Sync Simulated Successfully!");
-    } catch (err) {
-      alert(err.message || 'POS Sync failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // QR Scan handler
   const handleScanSuccess = (scannedData) => {
     setNewItem({
@@ -235,9 +216,6 @@ export default function BusinessDashboard({ user, tenant }) {
           <p className="page-subtitle">Business Management Dashboard & AI Engine</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button className="btn btn-secondary" onClick={triggerPOSSync} disabled={loading}>
-            <RefreshCw size={16} /> Sync POS API
-          </button>
           <button className="btn btn-primary" onClick={() => { setShowScan(true); setShowAddForm(false); }}>
             <Plus size={16} /> Scan Barcode
           </button>
@@ -301,13 +279,6 @@ export default function BusinessDashboard({ user, tenant }) {
         >
           <Sparkles size={16} style={{ marginRight: '0.25rem', color: 'var(--accent-indigo)' }} />
           AI Waste Predictions
-        </button>
-        <button 
-          className={`btn ${activeTab === 'reorders' ? 'active' : ''}`}
-          style={{ background: 'none', color: activeTab === 'reorders' ? 'var(--accent-indigo)' : 'var(--text-secondary)', borderBottom: activeTab === 'reorders' ? '2px solid var(--accent-indigo)' : 'none', borderRadius: 0, paddingBottom: '0.75rem' }}
-          onClick={() => setActiveTab('reorders')}
-        >
-          Smart Reorders
         </button>
         <button 
           className={`btn ${activeTab === 'bookings' ? 'active' : ''}`}
@@ -456,53 +427,6 @@ export default function BusinessDashboard({ user, tenant }) {
                     </tr>
                   );
                 })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'reorders' && (
-        <div className="glass-panel table-container">
-          <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)' }}>
-            <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>Smart Replenishment Engine</h3>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>AI generated purchasing recommendations to prevent stockouts while avoiding over-stocking waste.</span>
-          </div>
-          {reorders.length === 0 ? (
-            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
-              All product lines are optimally stocked. No reorder recommendations.
-            </div>
-          ) : (
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Category</th>
-                  <th>Current Stock</th>
-                  <th>Predicted Demand (7 Days)</th>
-                  <th>Recommended Reorder</th>
-                  <th>Rationale</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reorders.map((r, idx) => (
-                  <tr key={idx}>
-                    <td style={{ fontWeight: 600 }}>{r.product_name}</td>
-                    <td>{r.category}</td>
-                    <td>{r.current_stock}</td>
-                    <td>{r.predicted_7day_demand}</td>
-                    <td style={{ color: 'var(--accent-cyan)', fontWeight: 700 }}>+{r.recommended_reorder_qty}</td>
-                    <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{r.reason}</td>
-                    <td>
-                      <button className="btn btn-secondary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }} onClick={() => {
-                        alert(`Reorder of ${r.recommended_reorder_qty} units of "${r.product_name}" processed through POS mock API!`);
-                      }}>
-                        Approve Order
-                      </button>
-                    </td>
-                  </tr>
-                ))}
               </tbody>
             </table>
           )}
