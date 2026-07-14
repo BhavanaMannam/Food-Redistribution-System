@@ -3,7 +3,7 @@ import { api } from '../api';
 import { useGPS } from '../hooks/useGPS';
 import { Sparkles, Building2, Heart, ChevronLeft, MapPin, Lock, Globe, Search, Navigation } from 'lucide-react';
 
-const BUSINESS_TYPES = ['Restaurant', 'Hotel', 'Supermarket', 'Cafeteria'];
+const BUSINESS_TYPES = ['Restaurant', 'Hotel', 'Supermarket', 'Cafeteria', 'Individual'];
 const NGO_TYPES = ['NGO', 'Community Kitchen', 'Food Bank'];
 
 export default function Login({ onLoginSuccess }) {
@@ -279,7 +279,7 @@ export default function Login({ onLoginSuccess }) {
           </p>
           <ul style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', paddingLeft: '1.1rem', margin: 0, lineHeight: '1.8' }}>
             {(isBusiness
-              ? ['Manage inventory', 'Track expiry dates', 'View waste risk', 'Donate surplus food', 'Control profile privacy']
+              ? ['Donate leftover food from events or occasions', 'Manage inventory (for businesses)', 'Track expiry dates', 'View waste risk', 'See nearby NGOs to donate to']
               : ['View nearby food donations', 'Accept donations', 'Schedule deliveries to your address', 'Track received donations']
             ).map((c) => <li key={c}>{c}</li>)}
           </ul>
