@@ -1,11 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { api } from '../api';
-import { Building2, Heart, Phone, MapPin, Mail, User, Edit2, Save, X, Globe, Lock, Search, Eye, EyeOff } from 'lucide-react';
+import { Building2, Heart, Phone, MapPin, Mail, User, Edit2, Save, X, Globe, Lock, Search, Eye, EyeOff, Navigation } from 'lucide-react';
 
 export default function ProfilePage({ user, tenant, onTenantUpdate }) {
   const [step, setStep] = useState('view'); // 'view' | 'verify' | 'edit'
   const [saving, setSaving] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [gpsAccuracy, setGpsAccuracy] = useState(null);
+  const watchRef = useRef(null);
   const [saved, setSaved] = useState(false);
 
   // Verification state
@@ -79,28 +81,44 @@ export default function ProfilePage({ user, tenant, onTenantUpdate }) {
     });
   };
 
-  // --- GPS ---
+  // --- GPS (high accuracy watchPosition) ---
   const detectLocation = () => {
     if (!navigator.geolocation) { alert('Geolocation not supported by your browser.'); return; }
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
+    setGpsAccuracy(null);
+    if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
+    watchRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        setForm(f => ({ ...f, latitude: lat, longitude: lng }));
-        // Reverse geocode to fill address
-        try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
-          const data = await res.json();
-          if (data.display_name) {
-            setForm(f => ({ ...f, address: data.display_name, latitude: lat, longitude: lng }));
-            setLocationQuery(data.display_name);
-          }
-        } catch { /* silently ignore reverse geocode failure */ }
-        setLocating(false);
+        const { latitude, longitude, accuracy } = pos.coords;
+        setGpsAccuracy(Math.round(accuracy));
+        setForm(f => ({ ...f, latitude, longitude }));
+        if (accuracy <= 50) {
+          navigator.geolocation.clearWatch(watchRef.current);
+          setLocating(false);
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`);
+            const data = await res.json();
+            if (data.display_name) {
+              setForm(f => ({ ...f, address: data.display_name, latitude, longitude }));
+              setLocationQuery(data.display_name);
+            }
+          } catch { /* ignore */ }
+        }
       },
-      () => { alert('Could not get GPS location. Please allow location access.'); setLocating(false); }
+      (err) => {
+        navigator.geolocation.clearWatch(watchRef.current);
+        setLocating(false);
+        setGpsAccuracy(null);
+        alert(err.code === 1 ? 'Location access denied. Please allow it in browser settings.' : 'Could not get GPS location.');
+      },
+      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
     );
+  };
+
+  const stopGps = () => {
+    if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
+    setLocating(false);
+    setGpsAccuracy(null);
   };
 
   // --- Location Search (Nominatim) ---
@@ -290,10 +308,17 @@ export default function ProfilePage({ user, tenant, onTenantUpdate }) {
                           style={{ paddingLeft: '2.1rem' }}
                         />
                       </div>
-                      <button type="button" onClick={detectLocation} disabled={locating}
-                        style={{ padding: '0 0.85rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--accent-cyan)', cursor: 'pointer', fontSize: '0.8rem', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                        <MapPin size={13} /> {locating ? '…' : 'GPS'}
-                      </button>
+                      {locating ? (
+                        <button type="button" onClick={stopGps}
+                          style={{ padding: '0 0.85rem', borderRadius: '8px', border: '1px solid var(--accent-rose)', background: 'rgba(239,68,68,0.1)', color: 'var(--accent-rose)', cursor: 'pointer', fontSize: '0.8rem', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          <Navigation size={13} /> Stop
+                        </button>
+                      ) : (
+                        <button type="button" onClick={detectLocation}
+                          style={{ padding: '0 0.85rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--accent-cyan)', cursor: 'pointer', fontSize: '0.8rem', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          <Navigation size={13} /> GPS
+                        </button>
+                      )}
                     </div>
 
                     {/* Search results dropdown */}
@@ -315,9 +340,15 @@ export default function ProfilePage({ user, tenant, onTenantUpdate }) {
                       </div>
                     )}
 
-                    {form.latitude && (
+                    {/* GPS status */}
+                    {locating && (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--accent-amber)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                        <Navigation size={11} /> Acquiring GPS signal… {gpsAccuracy ? `±${gpsAccuracy}m` : 'waiting for signal'}
+                      </div>
+                    )}
+                    {!locating && form.latitude && (
                       <div style={{ fontSize: '0.72rem', color: 'var(--accent-emerald)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                        <MapPin size={11} /> GPS coordinates saved: {form.latitude.toFixed(5)}, {form.longitude.toFixed(5)}
+                        <MapPin size={11} /> Pinned: {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}{gpsAccuracy ? ` ±${gpsAccuracy}m` : ''}
                       </div>
                     )}
                   </div>

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { api } from '../api';
-import { Sparkles, Building2, Heart, ChevronLeft, MapPin, Lock, Globe } from 'lucide-react';
+import { Sparkles, Building2, Heart, ChevronLeft, MapPin, Lock, Globe, Search, Navigation } from 'lucide-react';
 
 const BUSINESS_TYPES = ['Restaurant', 'Hotel', 'Supermarket', 'Cafeteria'];
 const NGO_TYPES = ['NGO', 'Community Kitchen', 'Food Bank'];
@@ -11,6 +11,12 @@ export default function Login({ onLoginSuccess }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [gpsAccuracy, setGpsAccuracy] = useState(null);
+  const [locationResults, setLocationResults] = useState([]);
+  const [searchingLoc, setSearchingLoc] = useState(false);
+  const [locationQuery, setLocationQuery] = useState('');
+  const searchTimeout = useRef(null);
+  const watchRef = useRef(null);
 
   const [form, setForm] = useState({
     username: '', password: '',
@@ -25,13 +31,65 @@ export default function Login({ onLoginSuccess }) {
   const detectLocation = () => {
     if (!navigator.geolocation) { alert('Geolocation not supported by your browser.'); return; }
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setForm(f => ({ ...f, latitude: pos.coords.latitude, longitude: pos.coords.longitude }));
-        setLocating(false);
+    setGpsAccuracy(null);
+    // Stop any previous watch
+    if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
+    watchRef.current = navigator.geolocation.watchPosition(
+      async (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        setGpsAccuracy(Math.round(accuracy));
+        setForm(f => ({ ...f, latitude, longitude }));
+        // Once accuracy is good enough (≤50m), stop watching and reverse geocode
+        if (accuracy <= 50) {
+          navigator.geolocation.clearWatch(watchRef.current);
+          setLocating(false);
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`);
+            const data = await res.json();
+            if (data.display_name) {
+              setForm(f => ({ ...f, location: data.display_name, latitude, longitude }));
+              setLocationQuery(data.display_name);
+            }
+          } catch { /* ignore */ }
+        }
       },
-      () => { alert('Could not get location. Please enter your address manually.'); setLocating(false); }
+      (err) => {
+        navigator.geolocation.clearWatch(watchRef.current);
+        setLocating(false);
+        setGpsAccuracy(null);
+        alert(err.code === 1 ? 'Location access denied. Please allow it in browser settings.' : 'Could not get GPS location. Enter address manually.');
+      },
+      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
     );
+  };
+
+  const stopGps = () => {
+    if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
+    setLocating(false);
+    setGpsAccuracy(null);
+  };
+
+  const handleLocationSearch = (e) => {
+    const q = e.target.value;
+    setLocationQuery(q);
+    setForm(f => ({ ...f, location: q }));
+    clearTimeout(searchTimeout.current);
+    if (q.length < 3) { setLocationResults([]); return; }
+    searchTimeout.current = setTimeout(async () => {
+      setSearchingLoc(true);
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5`);
+        const data = await res.json();
+        setLocationResults(data);
+      } catch { setLocationResults([]); }
+      finally { setSearchingLoc(false); }
+    }, 500);
+  };
+
+  const selectLocation = (place) => {
+    setForm(f => ({ ...f, location: place.display_name, latitude: parseFloat(place.lat), longitude: parseFloat(place.lon) }));
+    setLocationQuery(place.display_name);
+    setLocationResults([]);
   };
 
   const handleSubmit = async (e) => {
@@ -142,20 +200,58 @@ export default function Login({ onLoginSuccess }) {
                 </select>
               </div>
 
-              {/* Address + GPS */}
+              {/* Address + GPS + Search */}
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label">Delivery / Pickup Address</label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <input className="form-control" type="text" value={form.location} onChange={set('location')}
-                    placeholder="e.g. 123 Main St, City" required style={{ flex: 1 }} />
-                  <button type="button" onClick={detectLocation} disabled={locating}
-                    style={{ padding: '0 0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--accent-cyan)', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '0.8rem' }}>
-                    <MapPin size={14} style={{ verticalAlign: 'middle' }} /> {locating ? '…' : 'GPS'}
-                  </button>
+                <div style={{ position: 'relative' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <Search size={13} style={{ position: 'absolute', left: '0.7rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                      <input className="form-control" type="text" value={locationQuery}
+                        onChange={handleLocationSearch}
+                        placeholder="Search address or type manually…"
+                        required style={{ paddingLeft: '2.1rem' }} />
+                    </div>
+                    {locating ? (
+                      <button type="button" onClick={stopGps}
+                        style={{ padding: '0 0.75rem', borderRadius: '8px', border: '1px solid var(--accent-rose)', background: 'rgba(239,68,68,0.1)', color: 'var(--accent-rose)', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                        <Navigation size={13} className="animate-pulse" /> Stop
+                      </button>
+                    ) : (
+                      <button type="button" onClick={detectLocation}
+                        style={{ padding: '0 0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--accent-cyan)', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                        <Navigation size={13} /> GPS
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Search dropdown */}
+                  {(locationResults.length > 0 || searchingLoc) && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px', marginTop: '0.25rem', boxShadow: '0 8px 24px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
+                      {searchingLoc ? (
+                        <div style={{ padding: '0.75rem 1rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>Searching…</div>
+                      ) : locationResults.map(place => (
+                        <button key={place.place_id} type="button" onClick={() => selectLocation(place)}
+                          style={{ width: '100%', textAlign: 'left', padding: '0.6rem 0.9rem', background: 'none', border: 'none', borderBottom: '1px solid var(--border-color)', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                          <MapPin size={12} style={{ color: 'var(--accent-cyan)', marginTop: '0.15rem', flexShrink: 0 }} />
+                          <span style={{ lineHeight: 1.4 }}>{place.display_name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                {form.latitude && (
-                  <div style={{ fontSize: '0.72rem', color: 'var(--accent-emerald)', marginTop: '0.25rem' }}>
-                    ✓ Location captured: {form.latitude.toFixed(4)}, {form.longitude.toFixed(4)}
+
+                {/* GPS status */}
+                {locating && (
+                  <div style={{ fontSize: '0.72rem', color: 'var(--accent-amber)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <Navigation size={11} /> Acquiring GPS signal… {gpsAccuracy ? `±${gpsAccuracy}m` : ''}
+                  </div>
+                )}
+                {!locating && form.latitude && (
+                  <div style={{ fontSize: '0.72rem', color: 'var(--accent-emerald)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <MapPin size={11} /> Pinned: {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}{gpsAccuracy ? ` ±${gpsAccuracy}m` : ''}
                   </div>
                 )}
               </div>
