@@ -36,7 +36,7 @@ export default function App() {
 
   const navItems = [
     { key: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { key: 'impact',    icon: Leaf,            label: 'Impact Metrics' },
+    { key: 'impact',    icon: Leaf,            label: 'Our Impact' },
     { key: 'history',  icon: History,          label: 'Transfer History' },
     { key: 'profile',  icon: UserCircle,       label: 'Profile' },
   ];
