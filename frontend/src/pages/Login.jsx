@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { api } from '../api';
 import { useGPS } from '../hooks/useGPS';
-import { Sparkles, Building2, Heart, ChevronLeft, MapPin, Lock, Globe, Search, Navigation } from 'lucide-react';
+import { Sparkles, Building2, Heart, ChevronLeft, MapPin, Lock, Globe, Search, Navigation, User } from 'lucide-react';
 
-const BUSINESS_TYPES = ['Restaurant', 'Hotel', 'Supermarket', 'Cafeteria', 'Individual'];
+const BUSINESS_TYPES = ['Restaurant', 'Hotel', 'Supermarket', 'Cafeteria'];
 const NGO_TYPES = ['NGO', 'Community Kitchen', 'Food Bank'];
 
 export default function Login({ onLoginSuccess }) {
@@ -29,7 +29,6 @@ export default function Login({ onLoginSuccess }) {
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  // Sync GPS result into form when hook resolves
   useEffect(() => {
     if (!gps.locating && gps.coords) {
       setForm(f => ({ ...f, latitude: gps.coords.lat, longitude: gps.coords.lng, location: gps.address || f.location }));
@@ -74,8 +73,8 @@ export default function Login({ onLoginSuccess }) {
           password: form.password,
           email: form.email,
           org_name: form.org_name,
-          org_type: form.org_type,
-          portal,
+          org_type: form.org_type || (portal === 'individual' ? 'Individual' : ''),
+          portal: portal === 'individual' ? 'business' : portal, // individual uses business backend type
           location: form.location,
           phone: form.phone,
           latitude: form.latitude,
@@ -91,28 +90,35 @@ export default function Login({ onLoginSuccess }) {
     }
   };
 
+  // Portal selection screen
   if (!portal) {
     return (
       <div className="auth-bg">
-        <div className="glass-panel auth-card animate-fade-in" style={{ maxWidth: 480 }}>
+        <div className="glass-panel auth-card animate-fade-in" style={{ maxWidth: 520 }}>
           <div className="app-logo" style={{ justifyContent: 'center', marginBottom: '1.5rem' }}>
             <Sparkles size={26} style={{ color: 'var(--accent-indigo)' }} />
             <span>ResQFood AI</span>
           </div>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.5rem', marginBottom: '0.4rem' }}>Who are you?</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginBottom: '2rem' }}>Select your portal to continue.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-            <button className="glass-panel" onClick={() => setPortal('business')}
-              style={{ padding: '1.5rem 1rem', cursor: 'pointer', border: '1px solid var(--border-color)', borderRadius: '14px', textAlign: 'center', background: 'transparent' }}>
-              <Building2 size={32} style={{ color: 'var(--accent-indigo)', marginBottom: '0.75rem' }} />
-              <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.4rem' }}>Business</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Restaurants · Hotels<br />Supermarkets · Cafeterias</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+            <button className="glass-panel" onClick={() => { setPortal('business'); setMode('login'); setError(''); }}
+              style={{ padding: '1.5rem 0.75rem', cursor: 'pointer', border: '1px solid var(--border-color)', borderRadius: '14px', textAlign: 'center', background: 'transparent' }}>
+              <Building2 size={30} style={{ color: 'var(--accent-indigo)', marginBottom: '0.75rem' }} />
+              <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.4rem' }}>Business</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Restaurants · Hotels<br />Supermarkets · Cafeterias</div>
             </button>
-            <button className="glass-panel" onClick={() => setPortal('ngo')}
-              style={{ padding: '1.5rem 1rem', cursor: 'pointer', border: '1px solid var(--border-color)', borderRadius: '14px', textAlign: 'center', background: 'transparent' }}>
-              <Heart size={32} style={{ color: 'var(--accent-emerald)', marginBottom: '0.75rem' }} />
-              <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.4rem' }}>Recipient Org</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>NGOs · Community Kitchens<br />Food Banks</div>
+            <button className="glass-panel" onClick={() => { setPortal('individual'); setMode('login'); setError(''); }}
+              style={{ padding: '1.5rem 0.75rem', cursor: 'pointer', border: '1px solid rgba(245,158,11,0.4)', borderRadius: '14px', textAlign: 'center', background: 'transparent' }}>
+              <User size={30} style={{ color: 'var(--accent-amber)', marginBottom: '0.75rem' }} />
+              <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.4rem' }}>Individual</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Donate leftover food<br />from events & occasions</div>
+            </button>
+            <button className="glass-panel" onClick={() => { setPortal('ngo'); setMode('login'); setError(''); }}
+              style={{ padding: '1.5rem 0.75rem', cursor: 'pointer', border: '1px solid var(--border-color)', borderRadius: '14px', textAlign: 'center', background: 'transparent' }}>
+              <Heart size={30} style={{ color: 'var(--accent-emerald)', marginBottom: '0.75rem' }} />
+              <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.4rem' }}>Recipient Org</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>NGOs · Community Kitchens<br />Food Banks</div>
             </button>
           </div>
         </div>
@@ -120,10 +126,13 @@ export default function Login({ onLoginSuccess }) {
     );
   }
 
-  const isBusiness = portal === 'business';
-  const orgTypes = isBusiness ? BUSINESS_TYPES : NGO_TYPES;
-  const accentColor = isBusiness ? 'var(--accent-indigo)' : 'var(--accent-emerald)';
-  const PortalIcon = isBusiness ? Building2 : Heart;
+  const isBusiness   = portal === 'business';
+  const isIndividual = portal === 'individual';
+  const isNGO        = portal === 'ngo';
+  const orgTypes     = isBusiness ? BUSINESS_TYPES : isNGO ? NGO_TYPES : [];
+  const accentColor  = isBusiness ? 'var(--accent-indigo)' : isIndividual ? 'var(--accent-amber)' : 'var(--accent-emerald)';
+  const PortalIcon   = isBusiness ? Building2 : isIndividual ? User : Heart;
+  const portalLabel  = isBusiness ? 'Business Portal' : isIndividual ? 'Individual Donor' : 'Recipient Organization';
 
   return (
     <div className="auth-bg">
@@ -134,9 +143,7 @@ export default function Login({ onLoginSuccess }) {
             <ChevronLeft size={20} />
           </button>
           <PortalIcon size={22} style={{ color: accentColor }} />
-          <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>
-            {isBusiness ? 'Business Portal' : 'Recipient Organization Portal'}
-          </span>
+          <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>{portalLabel}</span>
         </div>
 
         <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '3px', marginBottom: '1.5rem' }}>
@@ -159,18 +166,26 @@ export default function Login({ onLoginSuccess }) {
         <form onSubmit={handleSubmit} style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
           {mode === 'register' && (
             <>
-              <Field label="Organization Name" value={form.org_name} onChange={set('org_name')} placeholder="e.g. FreshMart" required />
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Organization Type</label>
-                <select className="form-control" value={form.org_type} onChange={set('org_type')} required>
-                  <option value="">Select type…</option>
-                  {orgTypes.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
+              <Field
+                label={isIndividual ? 'Your Full Name' : 'Organization Name'}
+                value={form.org_name} onChange={set('org_name')}
+                placeholder={isIndividual ? 'e.g. Ravi Kumar' : 'e.g. FreshMart'} required
+              />
+
+              {/* Org type dropdown — not shown for individual (auto-set) */}
+              {!isIndividual && (
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Organization Type</label>
+                  <select className="form-control" value={form.org_type} onChange={set('org_type')} required>
+                    <option value="">Select type…</option>
+                    {orgTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              )}
 
               {/* Address + GPS + Search */}
               <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Delivery / Pickup Address</label>
+                <label className="form-label">{isIndividual ? 'Your Address' : 'Delivery / Pickup Address'}</label>
                 <div style={{ position: 'relative' }}>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <div style={{ position: 'relative', flex: 1 }}>
@@ -193,7 +208,6 @@ export default function Login({ onLoginSuccess }) {
                     )}
                   </div>
 
-                  {/* Search dropdown */}
                   {(locationResults.length > 0 || searchingLoc) && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px', marginTop: '0.25rem', boxShadow: '0 8px 24px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
                       {searchingLoc ? (
@@ -211,7 +225,6 @@ export default function Login({ onLoginSuccess }) {
                   )}
                 </div>
 
-                {/* GPS status + accuracy bar */}
                 {gps.locating && (
                   <div style={{ marginTop: '0.4rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--accent-amber)', marginBottom: '0.2rem' }}>
@@ -236,8 +249,8 @@ export default function Login({ onLoginSuccess }) {
                 )}
               </div>
 
-              <Field label="Emergency Contact Phone" value={form.phone} onChange={set('phone')} placeholder="+1 555 000 0000" type="tel" required />
-              <Field label="Email" value={form.email} onChange={set('email')} placeholder="you@org.com" type="email" required />
+              <Field label="Contact Phone" value={form.phone} onChange={set('phone')} placeholder="+1 555 000 0000" type="tel" required />
+              <Field label="Email" value={form.email} onChange={set('email')} placeholder="you@email.com" type="email" required />
 
               {/* Privacy toggle — business only */}
               {isBusiness && (
@@ -267,7 +280,7 @@ export default function Login({ onLoginSuccess }) {
           <Field label="Password" value={form.password} onChange={set('password')} type="password" required />
 
           <button type="submit" className="btn btn-primary"
-            style={{ width: '100%', padding: '0.85rem', marginTop: '0.25rem', background: accentColor }}
+            style={{ width: '100%', padding: '0.85rem', marginTop: '0.25rem', background: accentColor, border: 'none' }}
             disabled={loading}>
             {loading ? (mode === 'login' ? 'Signing in…' : 'Creating account…') : (mode === 'login' ? 'Sign In' : 'Create Account')}
           </button>
@@ -275,11 +288,13 @@ export default function Login({ onLoginSuccess }) {
 
         <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.2rem' }}>
           <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-            {isBusiness ? 'As a Business you can:' : 'As a Recipient Org you can:'}
+            {isBusiness ? 'As a Business you can:' : isIndividual ? 'As an Individual you can:' : 'As a Recipient Org you can:'}
           </p>
           <ul style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', paddingLeft: '1.1rem', margin: 0, lineHeight: '1.8' }}>
             {(isBusiness
-              ? ['Donate leftover food from events or occasions', 'Manage inventory (for businesses)', 'Track expiry dates', 'View waste risk', 'See nearby NGOs to donate to']
+              ? ['Manage inventory', 'Track expiry dates', 'View AI waste risk', 'See nearby NGOs']
+              : isIndividual
+              ? ['Donate leftover food from events & occasions', 'See nearby NGOs and food banks', 'Track your donation history']
               : ['View nearby food donations', 'Accept donations', 'Schedule deliveries to your address', 'Track received donations']
             ).map((c) => <li key={c}>{c}</li>)}
           </ul>

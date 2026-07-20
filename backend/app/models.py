@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Date, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, Date, ForeignKey, Boolean, Text
 from sqlalchemy.orm import relationship
 import datetime
 from .database import Base
@@ -99,3 +99,24 @@ class SalesHistory(Base):
     quantity_wasted = Column(Float)
 
     tenant = relationship("Tenant", back_populates="sales_history")
+
+
+# ---------------------------------------------------------------------------
+# Barcode Product Catalogue — standalone table, no FK to other tables
+# ---------------------------------------------------------------------------
+class BarcodeProduct(Base):
+    __tablename__ = "barcode_products"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    barcode        = Column(String, unique=True, index=True, nullable=False)
+    product_name   = Column(String, nullable=False)
+    brand          = Column(String, nullable=True)
+    category       = Column(String, nullable=True)
+    quantity       = Column(Float, nullable=True)
+    unit           = Column(String, nullable=True)
+    manufacturing_date = Column(Date, nullable=True)
+    expiry_date    = Column(Date, nullable=True)
+    description    = Column(Text, nullable=True)
+    image_url      = Column(String, nullable=True)
+    created_at     = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at     = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

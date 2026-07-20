@@ -446,72 +446,68 @@ def create_booking(booking: BookingCreate, ngo_id: int, db: Session = Depends(ge
     return db_booking
 
 @app.post("/api/v1/marketplace/donate")
-def individual_donate(donor_id: int, db: Session = Depends(get_db),
-                      ngo_id: Optional[int] = None,
+def individual_donate(ngo_id: int, donor_id: int, db: Session = Depends(get_db),
                       food_name: str = "", category: str = "Produce",
                       quantity: float = 1.0, unit: str = "units",
                       notes: str = "", pickup_hours: int = 4):
     """
-    Individual donates food.
-    - ngo_id provided → direct donation to that NGO (creates booking, NGO must accept).
-    - ngo_id omitted / None → broadcast listing visible to all NGOs in the feed.
+    Individual donates food directly to a specific NGO.
+    Creates inventory item + listing + pending booking atomically.
+    The NGO sees this as an incoming donation to accept or reject.
     """
     donor = db.query(Tenant).filter(Tenant.id == donor_id).first()
     if not donor:
         raise HTTPException(status_code=404, detail="Donor not found")
-
-    ngo = None
-    if ngo_id:
-        ngo = db.query(Tenant).filter(Tenant.id == ngo_id, Tenant.type == "ngo").first()
-        if not ngo:
-            raise HTTPException(status_code=404, detail="NGO not found")
+    ngo = db.query(Tenant).filter(Tenant.id == ngo_id, Tenant.type == "ngo").first()
+    if not ngo:
+        raise HTTPException(status_code=404, detail="NGO not found")
 
     now = datetime.datetime.utcnow()
-    expiry = datetime.date.today() + datetime.timedelta(days=2)
+    expiry = (datetime.date.today() + datetime.timedelta(days=2))
     pickup_end = now + datetime.timedelta(hours=pickup_hours)
 
-    # Item is "active" so it appears in NGO feed; marked "listed" only when an NGO requests it
     item = InventoryItem(
-        product_name=food_name, category=category, quantity=quantity, unit=unit,
-        purchase_price=0.01, purchase_date=datetime.date.today(), expiry_date=expiry,
-        status="active", tenant_id=donor_id,
+        product_name=food_name,
+        category=category,
+        quantity=quantity,
+        unit=unit,
+        purchase_price=0.01,
+        purchase_date=datetime.date.today(),
+        expiry_date=expiry,
+        status="listed",
+        tenant_id=donor_id,
     )
     db.add(item)
     db.flush()
 
-    listing_notes = notes or (f"Donated by {donor.name} to {ngo.name}" if ngo else f"Open donation by {donor.name} — available to all NGOs")
+    listing = SurplusListing(
+        inventory_item_id=item.id,
+        product_name=food_name,
+        category=category,
+        quantity=quantity,
+        unit=unit,
+        expiry_date=expiry,
+        pickup_window_start=now,
+        pickup_window_end=pickup_end,
+        notes=notes or f"Donated by {donor.name} to {ngo.name}",
+        status="reserved",
+        tenant_id=donor_id,
+    )
+    db.add(listing)
+    db.flush()
 
-    if ngo:
-        # Direct donation to specific NGO: reserve immediately, create pending booking
-        item.status = "listed"
-        listing = SurplusListing(
-            inventory_item_id=item.id, product_name=food_name, category=category,
-            quantity=quantity, unit=unit, expiry_date=expiry,
-            pickup_window_start=now, pickup_window_end=pickup_end,
-            notes=listing_notes, status="reserved", tenant_id=donor_id,
-        )
-        db.add(listing)
-        db.flush()
-        booking = Booking(
-            listing_id=listing.id, ngo_id=ngo_id,
-            pickup_time=pickup_end, status="pending", created_at=now,
-        )
-        db.add(booking)
-        db.commit()
-        return {"booking_id": booking.id, "listing_id": listing.id, "status": "pending",
-                "message": f"Donation request sent to {ngo.name}. Waiting for their acceptance."}
-    else:
-        # Broadcast: item stays "active" so it appears in NGO feed; no booking yet
-        listing = SurplusListing(
-            inventory_item_id=item.id, product_name=food_name, category=category,
-            quantity=quantity, unit=unit, expiry_date=expiry,
-            pickup_window_start=now, pickup_window_end=pickup_end,
-            notes=listing_notes, status="available", tenant_id=donor_id,
-        )
-        db.add(listing)
-        db.commit()
-        return {"listing_id": listing.id, "status": "available",
-                "message": "Food listed for all NGOs. Any NGO can now request it."}
+    booking = Booking(
+        listing_id=listing.id,
+        ngo_id=ngo_id,
+        pickup_time=pickup_end,
+        status="pending",
+        created_at=now,
+    )
+    db.add(booking)
+    db.commit()
+
+    return {"booking_id": booking.id, "listing_id": listing.id, "status": "pending",
+            "message": f"Donation request sent to {ngo.name}. Waiting for their acceptance."}
 
 
 @app.get("/api/v1/marketplace/my-donations")
@@ -561,8 +557,8 @@ def get_incoming_donations(ngo_id: int, db: Session = Depends(get_db)):
     for b in bookings:
         listing = b.listing
         donor = db.query(Tenant).filter(Tenant.id == listing.tenant_id).first() if listing else None
-        # Only include donations from Individual donors (org_type="Individual", type="business")
-        if not donor or donor.org_type != "Individual":
+        # Only include donations from individuals (not NGO self-requests)
+        if not donor or donor.type not in ("individual",):
             continue
         result.append({
             "id": b.id,
@@ -592,59 +588,6 @@ def get_incoming_donations(ngo_id: int, db: Session = Depends(get_db)):
     return result
 
 
-@app.get("/api/v1/marketplace/ngo-requests")
-def get_ngo_requests_for_individual(donor_id: int, db: Session = Depends(get_db)):
-    """
-    Returns bookings where an NGO requested food from an Individual donor's listings.
-    These appear in the Individual portal as incoming requests to accept or decline.
-    """
-    donor = db.query(Tenant).filter(Tenant.id == donor_id).first()
-    if not donor:
-        raise HTTPException(status_code=404, detail="Donor not found")
-
-    # All bookings on listings owned by this donor, where the requester is an NGO
-    bookings = (
-        db.query(Booking)
-        .join(SurplusListing, Booking.listing_id == SurplusListing.id)
-        .filter(SurplusListing.tenant_id == donor_id)
-        .all()
-    )
-
-    result = []
-    for b in bookings:
-        listing = b.listing
-        ngo = db.query(Tenant).filter(Tenant.id == b.ngo_id, Tenant.type == "ngo").first()
-        if not ngo:
-            continue  # skip non-NGO bookings (e.g. individual self-donations)
-        result.append({
-            "id": b.id,
-            "listing_id": b.listing_id,
-            "ngo_id": b.ngo_id,
-            "pickup_time": b.pickup_time.isoformat() if b.pickup_time else None,
-            "status": b.status,
-            "created_at": b.created_at.isoformat() if b.created_at else None,
-            "listing": {
-                "id": listing.id,
-                "product_name": listing.product_name,
-                "category": listing.category,
-                "quantity": listing.quantity,
-                "unit": listing.unit,
-                "notes": listing.notes,
-                "status": listing.status,
-            } if listing else None,
-            "ngo": {
-                "id": ngo.id,
-                "name": ngo.name,
-                "org_type": ngo.org_type,
-                "address": ngo.address,
-                "contact_phone": ngo.contact_phone,
-                "contact_email": ngo.contact_email,
-            },
-        })
-    result.sort(key=lambda x: x["created_at"] or "", reverse=True)
-    return result
-
-
 @app.get("/api/v1/marketplace/bookings")
 def get_bookings(tenant_id: int, db: Session = Depends(get_db)):
     """
@@ -657,19 +600,17 @@ def get_bookings(tenant_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     if tenant.type == "ngo":
-        # NGO sees only bookings they initiated against business/individual listings
+        # NGO sees only bookings they initiated against business listings (not individual donations)
+        donor_alias = db.query(Tenant).subquery()
         bookings = (
             db.query(Booking)
             .filter(Booking.ngo_id == tenant_id)
             .join(SurplusListing, Booking.listing_id == SurplusListing.id)
             .all()
         )
-        # Exclude donations that came FROM individuals (those go to incoming-donations tab)
         bookings = [b for b in bookings if b.listing and
-                    db.query(Tenant).filter(Tenant.id == b.listing.tenant_id).first() and
-                    db.query(Tenant).filter(Tenant.id == b.listing.tenant_id).first().org_type != "Individual"]
+                    db.query(Tenant).filter(Tenant.id == b.listing.tenant_id, Tenant.type == "business").first()]
     else:
-        # Business or Individual: see all incoming NGO requests on their listings
         bookings = db.query(Booking).join(SurplusListing).filter(
             SurplusListing.tenant_id == tenant_id
         ).all()
@@ -749,16 +690,13 @@ def update_booking_status(booking_id: int, tenant_id: int, status: str, db: Sess
         if listing.inventory_item_id:
             inv_item = db.query(InventoryItem).filter(InventoryItem.id == listing.inventory_item_id).first()
             if inv_item:
-                inv_item.status = "donated"  # removes from all feeds permanently
-    elif status == "confirmed":
-        # When donor accepts, mark listing reserved so no other NGO can grab it
-        listing.status = "reserved"
+                inv_item.status = "donated"
     elif status == "cancelled":
         listing.status = "available"
         if listing.inventory_item_id:
             inv_item = db.query(InventoryItem).filter(InventoryItem.id == listing.inventory_item_id).first()
             if inv_item:
-                inv_item.status = "active"  # back in feed for other NGOs
+                inv_item.status = "active"
 
     db.commit()
     db.refresh(db_booking)
@@ -804,21 +742,12 @@ def get_all_business_inventory(db: Session = Depends(get_db)):
     enriched with donor contact info for NGO portal display.
     """
     items = db.query(InventoryItem).filter(
-        InventoryItem.status.in_(["active", "listed"])
+        InventoryItem.status == "active"
     ).all()
     result = []
     for item in items:
         tenant = db.query(Tenant).filter(Tenant.id == item.tenant_id).first()
-        if not tenant or (tenant.type != "business" and tenant.org_type != "Individual"):
-            continue
-        # Only show items that have an available listing (not reserved/completed)
-        has_available = db.query(SurplusListing).filter(
-            SurplusListing.inventory_item_id == item.id,
-            SurplusListing.status == "available"
-        ).first()
-        # For active items with no listing yet (business inventory), always show
-        # For listed items, only show if there's still an available listing
-        if item.status == "listed" and not has_available:
+        if not tenant or tenant.type != "business":
             continue
         days_to_exp = (item.expiry_date - datetime.date.today()).days
         result.append({
@@ -868,6 +797,7 @@ def request_donation(ngo_id: int, inventory_item_id: int, quantity: float, picku
     pickup_clean = pickup_time.replace("Z", "+00:00") if pickup_time.endswith("Z") else pickup_time
     try:
         pickup_dt = datetime.datetime.fromisoformat(pickup_clean)
+        # Strip timezone info for SQLite compatibility
         pickup_dt = pickup_dt.replace(tzinfo=None)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid pickup_time format: {pickup_time}")
@@ -875,33 +805,21 @@ def request_donation(ngo_id: int, inventory_item_id: int, quantity: float, picku
     # Mark item as listed so it won't appear as available to other NGOs
     item.status = "listed"
 
-    # If there's already an available listing for this item (broadcast), use it
-    existing_listing = db.query(SurplusListing).filter(
-        SurplusListing.inventory_item_id == item.id,
-        SurplusListing.status == "available"
-    ).first()
-
-    if existing_listing:
-        existing_listing.status = "reserved"
-        existing_listing.pickup_window_end = pickup_dt
-        existing_listing.notes = f"Requested by {ngo.name}"
-        listing = existing_listing
-    else:
-        listing = SurplusListing(
-            inventory_item_id=item.id,
-            product_name=item.product_name,
-            category=item.category,
-            quantity=quantity,
-            unit=item.unit,
-            expiry_date=item.expiry_date,
-            pickup_window_start=now,
-            pickup_window_end=pickup_dt,
-            notes=f"Requested by {ngo.name}",
-            status="reserved",
-            tenant_id=item.tenant_id
-        )
-        db.add(listing)
-    db.flush()
+    listing = SurplusListing(
+        inventory_item_id=item.id,
+        product_name=item.product_name,
+        category=item.category,
+        quantity=quantity,
+        unit=item.unit,
+        expiry_date=item.expiry_date,
+        pickup_window_start=now,
+        pickup_window_end=pickup_dt,
+        notes=f"Requested by {ngo.name}",
+        status="reserved",
+        tenant_id=item.tenant_id
+    )
+    db.add(listing)
+    db.flush()  # get listing.id without committing yet
 
     booking = Booking(
         listing_id=listing.id,
@@ -1184,11 +1102,11 @@ def get_global_sustainability_impact(tenant_id: Optional[int] = None, db: Sessio
             
         total_diverted_kg += kg
         
-        # Calculate money saved (using INR price)
+        # Calculate money saved (using dummy price)
         if listing.inventory_item:
             total_value_saved += (listing.inventory_item.purchase_price * qty)
         else:
-            total_value_saved += (50.0 * qty)  # Fallback: ₹50 per unit estimate
+            total_value_saved += (1.50 * qty) # Fallback price estimate
             
     co2_saved = total_diverted_kg * 2.5 # 1kg food waste offset is approx 2.5kg CO2
     meals_redistributed = total_diverted_kg / 0.42 # 0.42kg of food per meal
@@ -1253,63 +1171,10 @@ def get_global_sustainability_impact(tenant_id: Optional[int] = None, db: Sessio
             "total_diverted_kg": round(total_diverted_kg, 1),
             "co2_saved_kg": round(co2_saved, 1),
             "meals_redistributed": round(meals_redistributed),
-            "total_value_saved_inr": round(total_value_saved, 2)
+            "total_value_saved_usd": round(total_value_saved, 2)
         },
         "weekly_trend": chart_data,
         "category_breakdown": category_data
-    }
-
-
-# ----------------- OPEN FOOD FACTS PROXY -----------------
-
-@app.get("/api/v1/barcode/lookup/{barcode}")
-def lookup_barcode_off(barcode: str):
-    """
-    Proxy to Open Food Facts so the browser never hits a CORS wall.
-    Returns a normalised product dict or 404.
-    """
-    import urllib.request, json as _json
-
-    url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "FoodRedistributionApp/1.0"})
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = _json.loads(resp.read().decode())
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Open Food Facts unreachable: {e}")
-
-    if data.get("status") != 1 or not data.get("product"):
-        raise HTTPException(status_code=404, detail="Product not found on Open Food Facts")
-
-    p = data["product"]
-
-    # Guess category from tags / name
-    tags = " ".join(p.get("categories_tags") or []) + " " + (p.get("product_name") or "")
-    tags = tags.lower()
-    if any(w in tags for w in ["milk", "dairy", "cheese", "yogurt", "butter", "cream"]):
-        category = "Dairy"
-    elif any(w in tags for w in ["meat", "chicken", "beef", "pork", "fish", "salmon", "seafood"]):
-        category = "Meat"
-    elif any(w in tags for w in ["bread", "bakery", "cake", "pastry", "biscuit", "cookie", "muffin"]):
-        category = "Bakery"
-    elif any(w in tags for w in ["fruit", "vegetable", "produce", "fresh", "salad", "spinach", "banana"]):
-        category = "Produce"
-    else:
-        category = "Pantry"
-
-    return {
-        "barcode": barcode,
-        "product_name": p.get("product_name") or p.get("product_name_en") or "",
-        "brand": p.get("brands") or "",
-        "category": category,
-        "quantity": None,
-        "unit": "units",
-        "manufacturing_date": None,
-        "expiry_date": None,
-        "description": p.get("ingredients_text") or "",
-        "image_url": p.get("image_front_small_url") or p.get("image_url") or None,
-        "nutriscore": p.get("nutriscore_grade") or None,
-        "countries": p.get("countries") or None,
     }
 
 

@@ -5,11 +5,11 @@ import BarcodeScanner from '../components/BarcodeScanner';
 import { 
   Plus, Upload, ShieldAlert, Sparkles, ShoppingBag, 
   Calendar, CheckCircle, Trash2, BarChart3, X, MapPin, Phone, Truck, Lock, Globe,
-  Heart, Users, SlidersHorizontal
+  Users, SlidersHorizontal, Heart, Mail, RefreshCw
 } from 'lucide-react';
 
 export default function BusinessDashboard({ user, tenant }) {
-  const [activeTab, setActiveTab] = useState('inventory'); // inventory, forecasts, bookings, donate, ngos
+  const [activeTab, setActiveTab] = useState('inventory'); // inventory, forecasts, bookings, ngos
   const [inventory, setInventory] = useState([]);
   const [predictions, setPredictions] = useState([]);
   const [reorders, setReorders] = useState([]);
@@ -41,16 +41,10 @@ export default function BusinessDashboard({ user, tenant }) {
   const [matchingNGOs, setMatchingNGOs] = useState([]);
   const [selectedListingForMatch, setSelectedListingForMatch] = useState(null);
 
-  // Individual donation state
+  // Nearby NGOs state
   const [allNGOs, setAllNGOs] = useState([]);
   const [ngoFilter, setNgoFilter] = useState('');
   const [ngoDistFilter, setNgoDistFilter] = useState('all');
-  const [quickDonate, setQuickDonate] = useState({
-    food_name: '', category: 'Produce', quantity: '', unit: 'units',
-    notes: '', pickup_hours: 4
-  });
-  const [quickDonating, setQuickDonating] = useState(false);
-  const [quickSuccess, setQuickSuccess] = useState('');
 
   useEffect(() => {
     loadData();
@@ -208,49 +202,7 @@ export default function BusinessDashboard({ user, tenant }) {
     }
   };
 
-  // Quick individual donation (no inventory item needed)
-  const handleQuickDonate = async (e) => {
-    e.preventDefault();
-    setQuickDonating(true);
-    setQuickSuccess('');
-    try {
-      const today = new Date();
-      const expiry = new Date();
-      expiry.setDate(today.getDate() + 3); // assume 3 days shelf life for occasion food
-      const now = new Date();
-      const end = new Date();
-      end.setHours(now.getHours() + parseInt(quickDonate.pickup_hours));
-
-      // Create inventory item first, then list it
-      const item = await api.inventory.createItem(tenant.id, {
-        product_name: quickDonate.food_name,
-        category: quickDonate.category,
-        quantity: parseFloat(quickDonate.quantity),
-        unit: quickDonate.unit,
-        purchase_price: 0.01,
-        expiry_date: expiry.toISOString().split('T')[0],
-      });
-      await api.marketplace.createListing(tenant.id, {
-        inventory_item_id: item.id,
-        product_name: item.product_name,
-        category: item.category,
-        quantity: item.quantity,
-        unit: item.unit,
-        expiry_date: item.expiry_date,
-        pickup_window_start: now.toISOString(),
-        pickup_window_end: end.toISOString(),
-        notes: quickDonate.notes || 'Leftover food from occasion — free to collect.',
-        status: 'available',
-      });
-      setQuickSuccess(`"${quickDonate.food_name}" listed for donation! Nearby NGOs can now request it.`);
-      setQuickDonate({ food_name: '', category: 'Produce', quantity: '', unit: 'units', notes: '', pickup_hours: 4 });
-      loadData();
-    } catch (err) {
-      alert(err.message || 'Failed to post donation');
-    } finally {
-      setQuickDonating(false);
-    }
-  };
+  // Quick individual donation handler removed (moved to IndividualDashboard)
 
   // Stats calculation
   const totalStockItems = inventory.reduce((sum, item) => sum + item.quantity, 0);
@@ -352,14 +304,6 @@ export default function BusinessDashboard({ user, tenant }) {
           )}
         </button>
         <button
-          className={`btn ${activeTab === 'donate' ? 'active' : ''}`}
-          style={{ background: 'none', color: activeTab === 'donate' ? 'var(--accent-emerald)' : 'var(--text-secondary)', borderBottom: activeTab === 'donate' ? '2px solid var(--accent-emerald)' : 'none', borderRadius: 0, paddingBottom: '0.75rem' }}
-          onClick={() => setActiveTab('donate')}
-        >
-          <Heart size={15} style={{ marginRight: '0.25rem', verticalAlign: 'middle' }} />
-          Donate Food
-        </button>
-        <button
           className={`btn ${activeTab === 'ngos' ? 'active' : ''}`}
           style={{ background: 'none', color: activeTab === 'ngos' ? 'var(--accent-cyan)' : 'var(--text-secondary)', borderBottom: activeTab === 'ngos' ? '2px solid var(--accent-cyan)' : 'none', borderRadius: 0, paddingBottom: '0.75rem' }}
           onClick={() => setActiveTab('ngos')}
@@ -411,7 +355,7 @@ export default function BusinessDashboard({ user, tenant }) {
                       <td style={{ fontWeight: 600 }}>{item.product_name}</td>
                       <td>{item.category}</td>
                       <td>{item.quantity} {item.unit}</td>
-                      <td>${item.purchase_price.toFixed(2)}</td>
+                      <td>₹{item.purchase_price.toFixed(2)}</td>
                       <td>{item.expiry_date}</td>
                       <td>
                         <span className={`badge ${expiryClass}`}>
@@ -599,96 +543,6 @@ export default function BusinessDashboard({ user, tenant }) {
         </div>
       )}
 
-      {/* Individual / Occasion Donation Tab */}
-      {activeTab === 'donate' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-          {/* Quick donate form */}
-          <div className="glass-panel" style={{ padding: '1.5rem' }}>
-            <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Heart size={17} style={{ color: 'var(--accent-emerald)' }} /> Donate Leftover Food
-            </h3>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-              Have extra food from a party, event, or occasion? List it here — nearby NGOs can request it immediately.
-            </p>
-
-            {quickSuccess && (
-              <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid var(--accent-emerald)', color: 'var(--accent-emerald)', padding: '0.75rem', borderRadius: '8px', fontSize: '0.82rem', marginBottom: '1rem' }}>
-                ✓ {quickSuccess}
-              </div>
-            )}
-
-            <form onSubmit={handleQuickDonate} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">What food do you have?</label>
-                <input className="form-control" type="text" value={quickDonate.food_name}
-                  onChange={e => setQuickDonate(f => ({ ...f, food_name: e.target.value }))}
-                  placeholder="e.g. Biryani, Birthday cake, Sandwiches…" required />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Category</label>
-                  <select className="form-control" value={quickDonate.category}
-                    onChange={e => setQuickDonate(f => ({ ...f, category: e.target.value }))}>
-                    {['Produce','Dairy','Bakery','Meat','Pantry'].map(c => <option key={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Unit</label>
-                  <select className="form-control" value={quickDonate.unit}
-                    onChange={e => setQuickDonate(f => ({ ...f, unit: e.target.value }))}>
-                    {['units','kg','liters','boxes','plates'].map(u => <option key={u}>{u}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Quantity</label>
-                  <input className="form-control" type="number" min="0.1" step="any"
-                    value={quickDonate.quantity}
-                    onChange={e => setQuickDonate(f => ({ ...f, quantity: e.target.value }))} required />
-                </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Pickup within (hours)</label>
-                  <input className="form-control" type="number" min="1" max="48"
-                    value={quickDonate.pickup_hours}
-                    onChange={e => setQuickDonate(f => ({ ...f, pickup_hours: e.target.value }))} required />
-                </div>
-              </div>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Any notes? (optional)</label>
-                <textarea className="form-control" rows="2" value={quickDonate.notes}
-                  onChange={e => setQuickDonate(f => ({ ...f, notes: e.target.value }))}
-                  placeholder="e.g. Freshly cooked, vegetarian, packed in containers…" />
-              </div>
-              <button type="submit" className="btn btn-success" disabled={quickDonating} style={{ padding: '0.75rem' }}>
-                <Heart size={15} /> {quickDonating ? 'Posting…' : 'Post Donation'}
-              </button>
-            </form>
-          </div>
-
-          {/* Tips panel */}
-          <div className="glass-panel" style={{ padding: '1.5rem' }}>
-            <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, marginBottom: '1rem' }}>How it works</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {[
-                { step: '1', title: 'Fill the form', desc: 'Tell us what food you have, how much, and how long it can be picked up.' },
-                { step: '2', title: 'It goes live instantly', desc: 'Your donation appears on the NGO feed. Nearby organizations can see and request it.' },
-                { step: '3', title: 'NGO sends a request', desc: 'You get a notification under NGO Requests. Accept it to confirm.' },
-                { step: '4', title: 'Food reaches people', desc: 'The NGO picks up or you deliver. Food goes to people who need it instead of the bin.' },
-              ].map(({ step, title, desc }) => (
-                <div key={step} style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
-                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(16,185,129,0.15)', border: '1px solid var(--accent-emerald)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.78rem', fontWeight: 700, color: 'var(--accent-emerald)', flexShrink: 0 }}>{step}</div>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: '0.15rem' }}>{title}</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>{desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Nearby NGOs Tab */}
       {activeTab === 'ngos' && (
         <div className="glass-panel table-container">
@@ -713,6 +567,10 @@ export default function BusinessDashboard({ user, tenant }) {
                 <option value="25">Within 25 km</option>
                 <option value="50">Within 50 km</option>
               </select>
+              <button className="btn btn-secondary" style={{ padding: '0.35rem 0.65rem', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+                onClick={async () => { const ngos = await api.tenants.getNGOs(tenant.id); setAllNGOs(ngos); }}>
+                <RefreshCw size={13} /> Refresh
+              </button>
             </div>
           </div>
 
@@ -724,7 +582,9 @@ export default function BusinessDashboard({ user, tenant }) {
             });
             return filtered.length === 0 ? (
               <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                No organizations found matching your filters.
+                {allNGOs.length === 0
+                  ? 'No NGOs registered yet. NGOs will appear here once they sign up.'
+                  : 'No organizations match your filters.'}
               </div>
             ) : (
               <table className="custom-table">
@@ -742,25 +602,49 @@ export default function BusinessDashboard({ user, tenant }) {
                   {filtered.map(ngo => (
                     <tr key={ngo.id}>
                       <td style={{ fontWeight: 600 }}>{ngo.name}</td>
-                      <td><span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '20px', background: 'rgba(16,185,129,0.12)', color: 'var(--accent-emerald)' }}>{ngo.org_type || 'NGO'}</span></td>
+                      <td>
+                        <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '20px', background: 'rgba(16,185,129,0.12)', color: 'var(--accent-emerald)' }}>
+                          {ngo.org_type || 'NGO'}
+                        </span>
+                      </td>
                       <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: 200 }}>
-                        {ngo.address ? <span><MapPin size={11} style={{ verticalAlign: 'middle' }} /> {ngo.address}</span> : '—'}
+                        {ngo.address
+                          ? <span><MapPin size={11} style={{ verticalAlign: 'middle' }} /> {ngo.address}</span>
+                          : '—'}
                       </td>
                       <td>
                         {ngo.distance_km != null
                           ? <span style={{ fontWeight: 600, color: ngo.distance_km <= 5 ? 'var(--accent-emerald)' : ngo.distance_km <= 15 ? 'var(--accent-cyan)' : 'var(--text-secondary)' }}>
-                              {ngo.distance_km} km
+                              {ngo.distance_km < 1
+                                ? `${Math.round(ngo.distance_km * 1000)} m`
+                                : `${ngo.distance_km.toLocaleString(undefined, { maximumFractionDigits: 1 })} km`}
                             </span>
                           : <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No GPS data</span>
                         }
                       </td>
                       <td style={{ fontSize: '0.82rem' }}>
-                        {ngo.contact_phone && <div><a href={`tel:${ngo.contact_phone}`} style={{ color: 'var(--accent-cyan)', textDecoration: 'none' }}><Phone size={11} style={{ verticalAlign: 'middle' }} /> {ngo.contact_phone}</a></div>}
-                        {ngo.contact_email && <div style={{ color: 'var(--text-muted)' }}>{ngo.contact_email}</div>}
+                        {ngo.contact_phone && (
+                          <div>
+                            <a href={`tel:${ngo.contact_phone}`} style={{ color: 'var(--accent-cyan)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                              <Phone size={11} /> {ngo.contact_phone}
+                            </a>
+                          </div>
+                        )}
+                        {ngo.contact_email && (
+                          <div style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.2rem' }}>
+                            <Mail size={11} /> {ngo.contact_email}
+                          </div>
+                        )}
                       </td>
                       <td>
-                        <button className="btn btn-success" style={{ padding: '0.3rem 0.65rem', fontSize: '0.78rem' }}
-                          onClick={() => setActiveTab('donate')}>
+                        <button
+                          className="btn btn-success"
+                          style={{ padding: '0.3rem 0.65rem', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+                          onClick={() => {
+                            // Switch to inventory tab and prompt user to pick an item to donate
+                            setActiveTab('inventory');
+                          }}
+                        >
                           <Heart size={12} /> Donate
                         </button>
                       </td>
@@ -900,7 +784,7 @@ export default function BusinessDashboard({ user, tenant }) {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Purchase Price ($)</label>
+                  <label className="form-label">Purchase Price (₹)</label>
                   <input 
                     type="number" 
                     step="any"

@@ -10,6 +10,7 @@ export default function NGODashboard({ user, tenant }) {
   const [tab, setTab] = useState('feed');
   const [allStock, setAllStock] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [incomingDonations, setIncomingDonations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -28,12 +29,14 @@ export default function NGODashboard({ user, tenant }) {
     setLoading(true);
     setError('');
     try {
-      const [stock, myBookings] = await Promise.all([
+      const [stock, myBookings, incoming] = await Promise.all([
         api.inventory.getAllBusiness(),
         api.marketplace.getBookings(tenant.id),
+        api.marketplace.getIncomingDonations(tenant.id),
       ]);
       setAllStock(stock);
       setBookings(myBookings);
+      setIncomingDonations(incoming);
     } catch (err) {
       setError(err.message || 'Error loading data');
     } finally {
@@ -106,6 +109,16 @@ export default function NGODashboard({ user, tenant }) {
   const pendingCount = bookings.filter(b => b.status === 'pending' || b.status === 'confirmed').length;
   const completedCount = bookings.filter(b => b.status === 'completed').length;
   const urgentCount = allStock.filter(i => i.days_to_expiry <= 2).length;
+  const pendingDonations = incomingDonations.filter(d => d.status === 'pending').length;
+
+  const handleDonationResponse = async (bookingId, status) => {
+    try {
+      await api.marketplace.updateBookingStatus(bookingId, tenant.id, status);
+      loadData();
+    } catch (err) {
+      alert(err.message || 'Failed to update');
+    }
+  };
 
   const statusColors = { pending: 'badge-orange', confirmed: 'badge-indigo', completed: 'badge-green', cancelled: 'badge-red' };
 
@@ -150,14 +163,18 @@ export default function NGODashboard({ user, tenant }) {
 
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', marginBottom: '1.5rem', gap: '1rem' }}>
-        {[['feed', 'Available Food Stock'], ['bookings', 'My Requests & Deliveries']].map(([key, label]) => (
+        {[['feed', 'Available Food Stock'], ['bookings', 'My Requests & Deliveries'], ['incoming', 'Incoming Donations']].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={{
             background: 'none', border: 'none', borderBottom: tab === key ? '2px solid var(--accent-emerald)' : 'none',
             color: tab === key ? 'var(--accent-emerald)' : 'var(--text-secondary)',
             padding: '0 0 0.75rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.92rem',
           }}>
-            {label} {key === 'bookings' && pendingCount > 0 && (
+            {label}
+            {key === 'bookings' && pendingCount > 0 && (
               <span style={{ background: 'var(--accent-amber)', color: '#000', borderRadius: '10px', padding: '0.1rem 0.45rem', fontSize: '0.72rem', marginLeft: '0.3rem' }}>{pendingCount}</span>
+            )}
+            {key === 'incoming' && pendingDonations > 0 && (
+              <span style={{ background: 'var(--accent-rose)', color: '#fff', borderRadius: '10px', padding: '0.1rem 0.45rem', fontSize: '0.72rem', marginLeft: '0.3rem' }}>{pendingDonations}</span>
             )}
           </button>
         ))}
@@ -216,7 +233,7 @@ export default function NGODashboard({ user, tenant }) {
                         <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                           <MapPin size={13} style={{ color: 'var(--accent-indigo)' }} />
                           {isPrivate
-                            ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Business details hidden until accepted</span>
+                            ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Details hidden until accepted</span>
                             : <><strong style={{ color: 'var(--text-primary)' }}>{item.donor_name}</strong>{item.donor_address && ` · ${item.donor_address}`}</>
                           }
                         </span>
@@ -286,7 +303,7 @@ export default function NGODashboard({ user, tenant }) {
 
                     {/* Donor details — revealed only after acceptance for private donors */}
                     <div style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }}>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.4rem' }}>Donor Business</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.4rem' }}>Donor</div>
                       {showDonorDetails ? (
                         <>
                           <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{donor.name || '—'}</div>
@@ -308,7 +325,7 @@ export default function NGODashboard({ user, tenant }) {
                         </>
                       ) : (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', color: 'var(--accent-amber)' }}>
-                          <Lock size={13} /> Business details will be revealed once they accept your request
+                          <Lock size={13} /> Donor details will be revealed once they accept your request
                         </div>
                       )}
                     </div>
@@ -337,6 +354,74 @@ export default function NGODashboard({ user, tenant }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Incoming Donations from Individuals Tab */}
+      {tab === 'incoming' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {incomingDonations.length === 0 ? (
+            <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+              No incoming donations yet. When an individual donates food to your NGO, it will appear here.
+            </div>
+          ) : incomingDonations.map(d => (
+            <div key={d.id} className="glass-panel" style={{ padding: '1.25rem 1.5rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '1rem', alignItems: 'start' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.6rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, fontSize: '1rem' }}>{d.listing?.product_name}</span>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{d.listing?.quantity} {d.listing?.unit}</span>
+                    <span className={`badge ${statusColors[d.status] || 'badge-orange'}`}>{d.status}</span>
+                  </div>
+                  {d.pickup_time && (
+                    <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                      <Clock size={13} />
+                      Pickup by: {new Date(d.pickup_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  )}
+                  {d.listing?.notes && (
+                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>📝 {d.listing.notes}</div>
+                  )}
+                  <div style={{ padding: '0.75rem', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.35rem' }}>From (Individual Donor)</div>
+                    <div style={{ fontWeight: 600 }}>{d.donor?.name || '—'}</div>
+                    {d.donor?.address && (
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.2rem' }}>
+                        <MapPin size={12} /> {d.donor.address}
+                      </div>
+                    )}
+                    {d.donor?.contact_phone && (
+                      <a href={`tel:${d.donor.contact_phone}`} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.82rem', color: 'var(--accent-cyan)', textDecoration: 'none', marginTop: '0.2rem' }}>
+                        <Phone size={12} /> {d.donor.contact_phone}
+                      </a>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  {d.status === 'pending' && (
+                    <>
+                      <button className="btn btn-success" style={{ padding: '0.4rem 0.8rem', fontSize: '0.82rem' }}
+                        onClick={() => handleDonationResponse(d.id, 'confirmed')}>
+                        <CheckCircle size={14} /> Accept
+                      </button>
+                      <button className="btn btn-danger" style={{ padding: '0.4rem 0.8rem', fontSize: '0.82rem' }}
+                        onClick={() => handleDonationResponse(d.id, 'cancelled')}>
+                        <X size={13} /> Decline
+                      </button>
+                    </>
+                  )}
+                  {d.status === 'confirmed' && (
+                    <button className="btn btn-success" style={{ padding: '0.4rem 0.8rem', fontSize: '0.82rem' }}
+                      onClick={() => handleDonationResponse(d.id, 'completed')}>
+                      <CheckCircle size={14} /> Mark Received
+                    </button>
+                  )}
+                  {d.status === 'completed' && <span style={{ color: 'var(--accent-emerald)', fontSize: '0.82rem' }}>✓ Received</span>}
+                  {d.status === 'cancelled' && <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Declined</span>}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

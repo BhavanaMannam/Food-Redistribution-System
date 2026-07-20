@@ -155,3 +155,38 @@ class MatchingNGOResponse(BaseModel):
     match_score: float
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Barcode Product Schemas
+# ---------------------------------------------------------------------------
+class BarcodeProductCreate(BaseModel):
+    barcode: str
+    product_name: str
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    manufacturing_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+
+class BarcodeProductUpdate(BaseModel):
+    product_name: Optional[str] = None
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    manufacturing_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+
+class BarcodeProductResponse(BarcodeProductCreate):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

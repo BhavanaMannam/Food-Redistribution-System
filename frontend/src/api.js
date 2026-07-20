@@ -1,19 +1,31 @@
 const API_BASE_URL = "http://localhost:8000/api/v1";
+const BARCODE_BASE_URL = "http://localhost:8000/api";
 
 async function request(url, options = {}) {
   const headers = options.headers || {};
   const response = await fetch(`${API_BASE_URL}${url}`, {
     ...options,
-    headers: {
-      ...headers,
-    },
+    headers: { ...headers },
   });
-
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.detail || "Something went wrong");
   }
+  return response.json();
+}
 
+async function barcodeRequest(url, options = {}) {
+  const { headers: extraHeaders, ...rest } = options;
+  // Only set Content-Type for requests that have a body
+  const headers = rest.body
+    ? { 'Content-Type': 'application/json', ...extraHeaders }
+    : { ...extraHeaders };
+  const response = await fetch(`${BARCODE_BASE_URL}${url}`, { ...rest, headers });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Something went wrong');
+  }
+  // DELETE returns {message} not a full object — still parse it
   return response.json();
 }
 
@@ -100,6 +112,13 @@ export const api = {
       request(`/marketplace/request?ngo_id=${ngoId}&inventory_item_id=${inventoryItemId}&quantity=${quantity}&pickup_time=${encodeURIComponent(pickupTime)}`, {
         method: "POST",
       }),
+    getIncomingDonations: (ngoId) => request(`/marketplace/incoming-donations?ngo_id=${ngoId}`),
+    donate: (donorId, ngoId, data) =>
+      request(`/marketplace/donate?donor_id=${donorId}${ngoId ? `&ngo_id=${ngoId}` : ''}&food_name=${encodeURIComponent(data.food_name)}&category=${data.category}&quantity=${data.quantity}&unit=${data.unit}&notes=${encodeURIComponent(data.notes || '')}&pickup_hours=${data.pickup_hours}`, {
+        method: 'POST',
+      }),
+    getMyDonations: (donorId) => request(`/marketplace/my-donations?donor_id=${donorId}`),
+    getNGORequests: (donorId) => request(`/marketplace/ngo-requests?donor_id=${donorId}`),
   },
 
   history: {
@@ -127,5 +146,14 @@ export const api = {
       const query = tenantId ? `?tenant_id=${tenantId}` : "";
       return request(`/analytics/impact${query}`);
     },
+  },
+
+  barcodes: {
+    getAll: () => barcodeRequest('/barcodes'),
+    getByBarcode: (barcode) => barcodeRequest(`/barcodes/lookup/${encodeURIComponent(barcode)}`),
+    lookupOFF: (barcode) => request(`/barcode/lookup/${encodeURIComponent(barcode)}`),
+    create: (data) => barcodeRequest('/barcodes', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id, data) => barcodeRequest(`/barcodes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id) => barcodeRequest(`/barcodes/${id}`, { method: 'DELETE' }),
   },
 };

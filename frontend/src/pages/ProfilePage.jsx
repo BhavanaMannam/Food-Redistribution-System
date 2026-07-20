@@ -386,7 +386,7 @@ export default function ProfilePage({ user, tenant, onTenantUpdate }) {
                 </div>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>{user.username}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Role: {user.role} · ID: {user.id}</div>
+
                 </div>
               </div>
             </div>

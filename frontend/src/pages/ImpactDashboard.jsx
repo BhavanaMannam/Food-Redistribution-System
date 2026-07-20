@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
-import { Leaf, Utensils, Wind, RefreshCw, TrendingUp, DollarSign } from 'lucide-react';
+import { Leaf, Utensils, Wind, IndianRupee, RefreshCw, TrendingUp } from 'lucide-react';
 
 export default function ImpactDashboard({ tenant }) {
   const [data, setData] = useState(null);
@@ -26,7 +26,7 @@ export default function ImpactDashboard({ tenant }) {
   if (loading && !data) return <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading your good work…</div>;
   if (error) return <div className="glass-panel" style={{ padding: '2rem', color: 'var(--accent-rose)' }}>{error}</div>;
 
-  const s = data?.summary || { total_diverted_kg: 0, co2_saved_kg: 0, meals_redistributed: 0, total_value_saved_usd: 0 };
+  const s = data?.summary || { total_diverted_kg: 0, co2_saved_kg: 0, meals_redistributed: 0, total_value_saved_inr: 0 };
   const weekly = data?.weekly_trend || [];
   const categories = data?.category_breakdown || [];
 
@@ -70,15 +70,15 @@ export default function ImpactDashboard({ tenant }) {
       bg: 'rgba(99,102,241,0.1)',
       value: `${s.co2_saved_kg.toLocaleString()} kg`,
       label: 'Pollution Prevented',
-      desc: 'Amount of harmful gas that was NOT released into the air because food didn\'t rot in a landfill'
+      desc: "Amount of harmful gas that was NOT released into the air because food didn't rot in a landfill"
     },
     {
-      icon: DollarSign,
+      icon: IndianRupee,
       color: 'var(--accent-amber)',
       bg: 'rgba(245,158,11,0.1)',
-      value: `$${s.total_value_saved_usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      label: 'Money Not Wasted',
-      desc: 'Value of food that was used instead of thrown away'
+      value: `₹${s.total_value_saved_inr.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+      label: 'Value Saved / Distributed',
+      desc: 'Estimated worth of food redistributed to the community instead of being wasted'
     },
   ];
 

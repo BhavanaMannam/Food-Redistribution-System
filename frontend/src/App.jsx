@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import Login from './pages/Login';
 import BusinessDashboard from './pages/BusinessDashboard';
 import NGODashboard from './pages/NGODashboard';
+import IndividualDashboard from './pages/IndividualDashboard';
 import ImpactDashboard from './pages/ImpactDashboard';
 import HistoryPage from './pages/HistoryPage';
 import ProfilePage from './pages/ProfilePage';
+import BarcodePage from './pages/BarcodePage';
 import {
   Building2, Heart, Leaf, LogOut, LayoutDashboard,
-  Sparkles, History, UserCircle, Phone, MapPin
+  Sparkles, History, UserCircle, Phone, MapPin, User, ScanBarcode
 } from 'lucide-react';
 
 export default function App() {
@@ -31,13 +33,17 @@ export default function App() {
   if (!session) return <Login onLoginSuccess={handleLoginSuccess} />;
 
   const { user, tenant } = session;
-  const isBusiness = tenant.type === 'business';
-  const accentColor = isBusiness ? 'var(--accent-indigo)' : 'var(--accent-emerald)';
+  const isBusiness   = tenant.type === 'business' && tenant.org_type !== 'Individual';
+  const isIndividual  = tenant.org_type === 'Individual';
+  const accentColor   = isBusiness ? 'var(--accent-indigo)' : isIndividual ? 'var(--accent-amber)' : 'var(--accent-emerald)';
+  const PortalAvatar  = isBusiness ? Building2 : isIndividual ? User : Heart;
+  const portalLabel   = isBusiness ? 'Business Portal' : isIndividual ? 'Individual Donor' : 'Recipient Portal';
 
   const navItems = [
     { key: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { key: 'impact',    icon: Leaf,            label: 'Our Impact' },
     { key: 'history',  icon: History,          label: 'Transfer History' },
+    { key: 'barcodes', icon: ScanBarcode,      label: 'Barcode Products' },
     { key: 'profile',  icon: UserCircle,       label: 'Profile' },
   ];
 
@@ -51,8 +57,8 @@ export default function App() {
 
         {/* Portal badge */}
         <div style={{ margin: '0 0.5rem 1rem', padding: '0.5rem 0.75rem', borderRadius: '8px', background: `${accentColor}18`, border: `1px solid ${accentColor}44`, fontSize: '0.75rem', fontWeight: 600, color: accentColor, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          {isBusiness ? <Building2 size={13} /> : <Heart size={13} />}
-          {isBusiness ? 'Business Portal' : 'Recipient Portal'}
+          <PortalAvatar size={13} />
+          {portalLabel}
         </div>
 
         <ul className="nav-menu">
@@ -72,7 +78,7 @@ export default function App() {
         <div className="user-profile-section" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.4rem', cursor: 'pointer' }} onClick={() => setCurrentPage('profile')}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%' }}>
             <div className="user-avatar">
-              {isBusiness ? <Building2 size={16} /> : <Heart size={16} />}
+              <PortalAvatar size={16} />
             </div>
             <div className="user-info" style={{ flex: 1, minWidth: 0 }}>
               <span className="user-name">{user.username}</span>
@@ -104,11 +110,14 @@ export default function App() {
         {currentPage === 'dashboard' && (
           isBusiness
             ? <BusinessDashboard user={user} tenant={tenant} />
+            : isIndividual
+            ? <IndividualDashboard user={user} tenant={tenant} />
             : <NGODashboard user={user} tenant={tenant} />
         )}
-        {currentPage === 'impact' && <ImpactDashboard tenant={tenant} />}
-        {currentPage === 'history' && <HistoryPage tenant={tenant} />}
-        {currentPage === 'profile' && <ProfilePage user={user} tenant={tenant} onTenantUpdate={handleTenantUpdate} />}
+        {currentPage === 'impact'   && <ImpactDashboard tenant={tenant} />}
+        {currentPage === 'history'  && <HistoryPage tenant={tenant} />}
+        {currentPage === 'barcodes' && <BarcodePage />}
+        {currentPage === 'profile'  && <ProfilePage user={user} tenant={tenant} onTenantUpdate={handleTenantUpdate} />}
       </main>
     </div>
   );
