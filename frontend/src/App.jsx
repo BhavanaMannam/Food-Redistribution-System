@@ -43,7 +43,7 @@ export default function App() {
     { key: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { key: 'impact',    icon: Leaf,            label: 'Our Impact' },
     { key: 'history',  icon: History,          label: 'Transfer History' },
-    { key: 'barcodes', icon: ScanBarcode,      label: 'Barcode Products' },
+    ...(isBusiness ? [{ key: 'barcodes', icon: ScanBarcode, label: 'Barcode Products' }] : []),
     { key: 'profile',  icon: UserCircle,       label: 'Profile' },
   ];
 
