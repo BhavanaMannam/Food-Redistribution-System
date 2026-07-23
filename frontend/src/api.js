@@ -151,7 +151,37 @@ export const api = {
   barcodes: {
     getAll: () => barcodeRequest('/barcodes'),
     getByBarcode: (barcode) => barcodeRequest(`/barcodes/lookup/${encodeURIComponent(barcode)}`),
-    lookupOFF: (barcode) => request(`/barcode/lookup/${encodeURIComponent(barcode)}`),
+    // Direct browser → Open Food Facts (no backend needed, CORS is allowed by OFF)
+    lookupOFF: async (barcode) => {
+      const res = await fetch(
+        `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}?fields=product_name,product_name_en,brands,categories_tags,ingredients_text,image_front_small_url,image_url,nutriscore_grade,countries`,
+        { headers: { 'User-Agent': 'FoodRedistributionApp/1.0' } }
+      );
+      if (!res.ok) throw new Error('OFF request failed');
+      const data = await res.json();
+      if (data.status !== 1 || !data.product) throw new Error('Product not found on Open Food Facts');
+      const p = data.product;
+      const tags = [...(p.categories_tags || []), p.product_name || ''].join(' ').toLowerCase();
+      let category = 'Pantry';
+      if (/milk|dairy|cheese|yogurt|butter|cream/.test(tags)) category = 'Dairy';
+      else if (/meat|chicken|beef|pork|fish|salmon|seafood/.test(tags)) category = 'Meat';
+      else if (/bread|bakery|cake|pastry|biscuit|cookie|muffin/.test(tags)) category = 'Bakery';
+      else if (/fruit|vegetable|produce|fresh|salad|spinach|banana/.test(tags)) category = 'Produce';
+      return {
+        barcode,
+        product_name: p.product_name || p.product_name_en || '',
+        brand: p.brands || '',
+        category,
+        quantity: null,
+        unit: 'units',
+        manufacturing_date: null,
+        expiry_date: null,
+        description: p.ingredients_text || '',
+        image_url: p.image_front_small_url || p.image_url || null,
+        nutriscore: p.nutriscore_grade || null,
+        countries: p.countries || null,
+      };
+    },
     create: (data) => barcodeRequest('/barcodes', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => barcodeRequest(`/barcodes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => barcodeRequest(`/barcodes/${id}`, { method: 'DELETE' }),

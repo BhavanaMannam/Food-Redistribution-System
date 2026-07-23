@@ -45,10 +45,13 @@ export default function BarcodeScanner({ onClose, onScanSuccess }) {
 
   const videoRef = useRef(null);
   const readerRef = useRef(null);
+  const controlsRef = useRef(null);
   const mountedRef = useRef(true);
+  const scannedRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
+    scannedRef.current = false;
     startScanner();
     return () => {
       mountedRef.current = false;
@@ -86,24 +89,25 @@ export default function BarcodeScanner({ onClose, onScanSuccess }) {
       const reader = new BrowserMultiFormatReader();
       readerRef.current = reader;
 
-      // decodeFromVideoDevice returns a Promise<IScannerControls>
-      // The callback fires on every frame: result set when barcode decoded, err is NotFoundException on empty frames
       const controls = await reader.decodeFromVideoDevice(
         device.deviceId,
         videoRef.current,
         (result, err) => {
+          if (!result) return;                  // NotFoundException on empty frames — ignore
           if (!mountedRef.current) return;
+          if (scannedRef.current) return;       // prevent double-fire
+          scannedRef.current = true;
 
-          if (result) {
-            controls.stop();
-            readerRef.current = null;
-            handleBarcode(result.getText());
-          }
-          // NotFoundException on every empty frame is expected — ignore it
+          // Stop via ref — safe even if callback fires before await returns
+          try { controlsRef.current?.stop(); } catch { /* ignore */ }
+          controlsRef.current = null;
+          readerRef.current = null;
+
+          handleBarcode(result.getText());
         }
       );
 
-      // Store controls so we can stop from outside the callback
+      controlsRef.current = controls;
       if (readerRef.current) readerRef.current._controls = controls;
     } catch (err) {
       if (!mountedRef.current) return;
@@ -114,11 +118,10 @@ export default function BarcodeScanner({ onClose, onScanSuccess }) {
   }
 
   function stopScanner() {
+    try { controlsRef.current?.stop(); } catch { /* ignore */ }
+    controlsRef.current = null;
     if (readerRef.current) {
-      try {
-        if (readerRef.current._controls) readerRef.current._controls.stop();
-        readerRef.current.reset();
-      } catch { /* ignore */ }
+      try { readerRef.current.reset(); } catch { /* ignore */ }
       readerRef.current = null;
     }
   }
@@ -144,6 +147,7 @@ export default function BarcodeScanner({ onClose, onScanSuccess }) {
 
     // 3. Not found
     setPhase('notfound');
+    setManualBarcode(barcode);
   }
 
   // ── Rescan ────────────────────────────────────────────────────────────────
@@ -155,6 +159,7 @@ export default function BarcodeScanner({ onClose, onScanSuccess }) {
     setManualBarcode('');
     setSaveError('');
     setForm(EMPTY_FORM);
+    scannedRef.current = false;
     startScanner();
   }
 
